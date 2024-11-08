@@ -76,15 +76,10 @@ int cpu_find_repeats(int *start, int length, int *output) {
     return count;
 }
 
-static int nextPowerOf2(int N) {
-	int i = 1;
-	for (; i <= N; i *= 2);
-	return i;
-}
-
 int main(int argc, char** argv) {
   
-    int N = 64;
+    // int N = 64;
+	int N = 100;
 	// int N = 100;
 
     bool useThrust = false;
@@ -173,20 +168,6 @@ int main(int argc, char** argv) {
             printf("Student GPU time: %.3f ms\n", 1000.f * cudaTime);
         } 
 
-#if 0
-		for (int i = 0; i < 10; ++i) {
-			fprintf(stderr, "%d ", inarray[i]);
-		}
-		fprintf(stderr, "\n");
-		for (int i = 0; i < 10; ++i) {
-			fprintf(stderr, "%d ", resultarray[i]);
-		}
-		fprintf(stderr, "\n");
-		for (int i = 0; i < 10; ++i) {
-			fprintf(stderr, "%d ", checkarray[i]);
-		}
-		fprintf(stderr, "\n");
-#endif
 
 
         // validate results
@@ -211,6 +192,23 @@ int main(int argc, char** argv) {
 
         // run CPU implementation to check correctness 
         int serial_size = cpu_find_repeats(inarray, N, checkarray);
+
+#if 0
+		for (int i = 0; i < 10; ++i) {
+			fprintf(stderr, "%d ", inarray[i]);
+		}
+		fprintf(stderr, "\n");
+		for (int i = 0; i < 10; ++i) {
+			fprintf(stderr, "%d ", resultarray[i]);
+		}
+		fprintf(stderr, "\n");
+		for (int i = 0; i < 10; ++i) {
+			fprintf(stderr, "%d ", checkarray[i]);
+		}
+		fprintf(stderr, "\n");
+#endif
+
+
 
         printf("Student GPU time: %.3f ms\n", 1000.f * cudaTime);
 

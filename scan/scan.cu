@@ -239,29 +239,31 @@ int find_repeats(int* device_input, int length, int* device_output) {
     // exclusive_scan function with them. However, your implementation
     // must ensure that the results of find_repeats are correct given
     // the actual array length.
+	int old_length = length;
+	int rounded_length = nextPow2(length);
+	//length = nextPow2(length);
 
 	int *mask;
 	int *scanned_mask;
 
-	int numThreadsNeeded = length;
-	int numBlocksNeeded = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+	int numBlocksNeeded = (length + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
-	cudaMalloc((void **)&mask, length * sizeof(int));
-	cudaMalloc((void **)&scanned_mask, length * sizeof(int));
+	cudaMalloc((void **)&mask, rounded_length * sizeof(int));
+	cudaMalloc((void **)&scanned_mask, rounded_length * sizeof(int));
 
-	getmask<<<numThreadsNeeded, numBlocksNeeded>>>(device_input, mask, length);
+	getmask<<<numBlocksNeeded, THREADS_PER_BLOCK>>>(device_input, mask, length);
 	cudaDeviceSynchronize();
 
-	exclusive_scan(mask, length, scanned_mask);
+	exclusive_scan(mask, rounded_length, scanned_mask);
 	cudaDeviceSynchronize();
 
 	int out;
-	cudaMemcpy(&out, scanned_mask + (length - 1), sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(&out, scanned_mask + (old_length - 1), sizeof(int), cudaMemcpyDeviceToHost);
 
-	getpositions<<<numThreadsNeeded, numBlocksNeeded>>>(mask, scanned_mask, length);
+	getpositions<<<numBlocksNeeded, THREADS_PER_BLOCK>>>(mask, scanned_mask, length);
 	cudaDeviceSynchronize();
 
-	writeindices<<<numThreadsNeeded, numBlocksNeeded>>>(mask, device_output, length);
+	writeindices<<<numBlocksNeeded, THREADS_PER_BLOCK>>>(mask, device_output, length);
 	cudaDeviceSynchronize();
 
     return out;
