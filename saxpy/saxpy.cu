@@ -43,6 +43,7 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
     // must read both input arrays (xarray and yarray) and write to
     // output array (resultarray)
     int totalBytes = sizeof(float) * 3 * N;
+		int bytesPerBuffer = totalBytes / 3;
 
     // compute number of blocks and threads per block.  In this
     // application we've hardcoded thread blocks to contain 512 CUDA
@@ -75,6 +76,14 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
     //
     // https://devblogs.nvidia.com/easy-introduction-cuda-c-and-c/
     //
+    if (cudaMalloc(&device_x, bytesPerBuffer) != cudaSuccess) {
+    }
+
+	if (cudaMalloc(&device_y, bytesPerBuffer) != cudaSuccess) {
+	}
+
+	if (cudaMalloc(&device_result, bytesPerBuffer) != cudaSuccess) {
+	}
         
     // start timing after allocation of device memory
     double startTime = CycleTimer::currentSeconds();
@@ -82,32 +91,39 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
     //
     // CS149 TODO: copy input arrays to the GPU using cudaMemcpy
     //
-
+		cudaMemcpy(device_x, xarray, bytesPerBuffer, cudaMemcpyHostToDevice);
+		cudaMemcpy(device_y, yarray, bytesPerBuffer, cudaMemcpyHostToDevice);
    
     // run CUDA kernel. (notice the <<< >>> brackets indicating a CUDA
     // kernel launch) Execution on the GPU occurs here.
+    double kernelStartTime = CycleTimer::currentSeconds();
     saxpy_kernel<<<blocks, threadsPerBlock>>>(N, alpha, device_x, device_y, device_result);
+	cudaDeviceSynchronize();
+    double kernelEndTime = CycleTimer::currentSeconds();
 
     //
     // CS149 TODO: copy result from GPU back to CPU using cudaMemcpy
     //
-
+		cudaMemcpy(resultarray, device_result, bytesPerBuffer, cudaMemcpyDeviceToHost);
     
     // end timing after result has been copied back into host memory
     double endTime = CycleTimer::currentSeconds();
 
     cudaError_t errCode = cudaPeekAtLastError();
     if (errCode != cudaSuccess) {
-        fprintf(stderr, "WARNING: A CUDA error occured: code=%d, %s\n",
-		errCode, cudaGetErrorString(errCode));
+        fprintf(stderr, "WARNING: A CUDA error occured: code=%d, %s\n", errCode, cudaGetErrorString(errCode));
     }
 
     double overallDuration = endTime - startTime;
     printf("Effective BW by CUDA saxpy: %.3f ms\t\t[%.3f GB/s]\n", 1000.f * overallDuration, GBPerSec(totalBytes, overallDuration));
+		printf("Kernel execution time: %.3f ms\n", 1000.f * (kernelEndTime-kernelStartTime));
 
     //
     // CS149 TODO: free memory buffers on the GPU using cudaFree
     //
+		cudaFree(device_result);
+		cudaFree(device_y);
+		cudaFree(device_x);
     
 }
 

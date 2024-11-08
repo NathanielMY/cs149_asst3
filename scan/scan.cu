@@ -24,7 +24,33 @@ static inline int nextPow2(int n) {
     n |= n >> 8;
     n |= n >> 16;
     n++;
-    return n;
+	return n;
+}
+
+__global__ void
+scan_upsweep(int* buffer, int N, int sourceStepSize, int destinationStepSize)
+{
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	// if (t_idx * destinationStepSize + destinationStepSize - 1 >= N) { return; }
+	if (t_idx >= N / destinationStepSize) { return; }
+	
+	unsigned long write_idx = t_idx * destinationStepSize;
+	buffer[write_idx + destinationStepSize - 1] += buffer[write_idx + sourceStepSize - 1];
+}
+
+__global__ void
+scan_downsweep(int* buffer, int N, int sourceStepSize, int destinationStepSize)
+{
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	// if (t_idx * destinationStepSize + destinationStepSize - 1 >= N) { return; }
+	if (t_idx >= N / destinationStepSize) { return; }
+
+	unsigned long write_idx = t_idx * destinationStepSize;
+	if (t_idx == 0 && destinationStepSize == N) { buffer[N-1] = 0; }
+
+	int tmp = buffer[write_idx + sourceStepSize - 1];
+	buffer[write_idx + sourceStepSize - 1] = buffer[write_idx + destinationStepSize - 1];
+	buffer[write_idx + destinationStepSize - 1] += tmp;
 }
 
 // exclusive_scan --
@@ -44,7 +70,6 @@ static inline int nextPow2(int n) {
 // places it in result
 void exclusive_scan(int* input, int N, int* result)
 {
-
     // CS149 TODO:
     //
     // Implement your exclusive scan implementation here.  Keep in
@@ -54,7 +79,33 @@ void exclusive_scan(int* input, int N, int* result)
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
 
+	cudaMemcpy(result, input, N*sizeof(int), cudaMemcpyDeviceToDevice);
+	N = nextPow2(N);
 
+	// upsweep
+	int destinationStepSize = 1;
+	for (int sourceStepSize= 1; sourceStepSize < N; sourceStepSize = destinationStepSize) {
+		destinationStepSize *= 2;
+	
+		int numThreadsNeeded = N / destinationStepSize;
+		int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+		scan_upsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
+			result, N, sourceStepSize, destinationStepSize);
+		cudaDeviceSynchronize();
+	}
+
+	// downsweep
+	destinationStepSize = N;
+	for (int sourceStepSize = N/2; sourceStepSize >= 1; sourceStepSize /= 2) {
+		
+		int numThreadsNeeded = N / destinationStepSize;
+		int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;	
+		scan_downsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
+			result, N, sourceStepSize, destinationStepSize);
+		cudaDeviceSynchronize();
+
+		destinationStepSize = sourceStepSize;
+	}
 }
 
 
@@ -140,6 +191,34 @@ double cudaScanThrust(int* inarray, int* end, int* resultarray) {
     return overallDuration; 
 }
 
+__global__ void
+getmask(int *buf, int *mask, int N)
+{
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (t_idx >= N-1) { return; }
+
+	mask[t_idx] = (buf[t_idx] == buf[t_idx + 1]) ? 1 : 0;
+}
+
+__global__ void
+getpositions(int *mask, int *scanned_mask, int N)
+{ 
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (t_idx >= N-1) { return; }
+	
+	mask[t_idx] *= scanned_mask[t_idx + 1];
+}
+
+__global__ void
+writeindices(int *positions, int *result, int N)
+{
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (t_idx >= N-1) { return; }
+	if (positions[t_idx] != 0) {
+		result[positions[t_idx]-1] = t_idx;
+	}
+}
+
 
 // find_repeats --
 //
@@ -161,7 +240,31 @@ int find_repeats(int* device_input, int length, int* device_output) {
     // must ensure that the results of find_repeats are correct given
     // the actual array length.
 
-    return 0; 
+	int *mask;
+	int *scanned_mask;
+
+	int numThreadsNeeded = length;
+	int numBlocksNeeded = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+
+	cudaMalloc((void **)&mask, length * sizeof(int));
+	cudaMalloc((void **)&scanned_mask, length * sizeof(int));
+
+	getmask<<<numThreadsNeeded, numBlocksNeeded>>>(device_input, mask, length);
+	cudaDeviceSynchronize();
+
+	exclusive_scan(mask, length, scanned_mask);
+	cudaDeviceSynchronize();
+
+	int out;
+	cudaMemcpy(&out, scanned_mask + (length - 1), sizeof(int), cudaMemcpyDeviceToHost);
+
+	getpositions<<<numThreadsNeeded, numBlocksNeeded>>>(mask, scanned_mask, length);
+	cudaDeviceSynchronize();
+
+	writeindices<<<numThreadsNeeded, numBlocksNeeded>>>(mask, device_output, length);
+	cudaDeviceSynchronize();
+
+    return out;
 }
 
 
