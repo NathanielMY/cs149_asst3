@@ -427,6 +427,76 @@ __global__ void kernelRenderCircles() {
     }
 }
 
+__global__ void circlesTileMask(
+	int *device_input_circles_list, 
+	int num_circles, 
+	int rounded_num_circles,
+	int *device_output_circles_list)
+{
+	unsigned long idx = blockDim.x * blockIdx.x + threadIdx.x;
+}
+
+// helper function to round an integer up to the next power of 2
+static inline int nextpow2(int n) {
+    n--;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n++;
+	return n;
+}
+
+void getCirclesInTile(
+	int *host_input_circles_list, int num_circles,
+	int **device_output_circles_list, int *num_circles_in_tile,
+	int topLeftX, int topLeftY, int bottomRightX, int bottomRightY)
+{
+	int *output_circle_list;
+	cudaMalloc((void **)&output_circle_list, nextPowOf2(num_input_circles));
+
+	int threads_per_block = 256;
+	int num_blocks = (num_input_circles + threads_per_block - 1) / threads_per_block;
+
+
+	perCircleTestAndWrite<<<num_blocks, threads_per_block>>>(
+		device_input_circles_list, num_input_circles,
+	);
+		
+
+	// Kernel: for each input circle @ i, set output_circle_list[i] = circle @ i covers tile.
+	// Kernel: prefix sum
+	// Kernel: 
+
+#if 0
+	allocate: out index list
+
+
+	foreach circle:
+		
+#endif
+}
+
+__global__ void student_kernelRenderCircles() {
+
+	int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+#if 0
+	serial: for tile in tiles:
+		list circles = circle[num_circles];
+
+		parallel: foreach circle in circles:
+			if tile contains circle[i], set cirlces[i] = 1
+		reduce circles list -> circles_in_tile
+
+		parallel: foreach pixel in tile
+			list pixel_circles = circle[circles_in_tile]
+			parallel: foreach circle in circles:
+				if circle covers pixel, set pixel_circles[index in reduced list] to 1
+#endif
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////
 
 

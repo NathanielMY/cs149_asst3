@@ -16,7 +16,7 @@
 
 
 // helper function to round an integer up to the next power of 2
-static inline int nextPow2(int n) {
+static inline int nextpow2(int n) {
     n--;
     n |= n >> 1;
     n |= n >> 2;
