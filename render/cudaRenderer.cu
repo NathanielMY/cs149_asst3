@@ -434,6 +434,8 @@ __global__ void circlesTileMask(
 	int *device_output_circles_list)
 {
 	unsigned long idx = blockDim.x * blockIdx.x + threadIdx.x;
+
+    //check if circle overlaps with tile, and if so, write a 1 to device_output_circles_list[idx]
 }
 
 // helper function to round an integer up to the next power of 2
@@ -448,35 +450,76 @@ static inline int nextpow2(int n) {
 	return n;
 }
 
+//copied from scan.cu
+__global__ void
+getpositions(int *mask, int *scanned_mask, int N)
+{ 
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (t_idx >= N-1) { return; }
+	
+	mask[t_idx] *= scanned_mask[t_idx + 1];
+}
+//copied from scan.cu
+__global__ void
+writeindices(int *positions, int *result, int N)
+{
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (t_idx >= N-1) { return; }
+	if (positions[t_idx] != 0) {
+		result[positions[t_idx]-1] = t_idx;
+	}
+}
+
 void getCirclesInTile(
 	int *host_input_circles_list, int num_circles,
 	int **device_output_circles_list, int *num_circles_in_tile,
 	int topLeftX, int topLeftY, int bottomRightX, int bottomRightY)
 {
 	int *output_circle_list;
-	cudaMalloc((void **)&output_circle_list, nextPowOf2(num_input_circles));
+    int rounded_num_circles = nextpow2(num_circles);
+	cudaMalloc((void **)&output_circle_list, rounded_num_circles);
+
+    int *scan_output_circle_list;
+    cudaMalloc((void **)&scan_output_circle_list, rounded_num_circles);
+    
 
 	int threads_per_block = 256;
 	int num_blocks = (num_input_circles + threads_per_block - 1) / threads_per_block;
 
 
-	perCircleTestAndWrite<<<num_blocks, threads_per_block>>>(
-		device_input_circles_list, num_input_circles,
+	circlesTileMask<<<num_blocks, threads_per_block>>>(
+		device_input_circles_list, num_input_circles, rounded_num_circles, output_circle_list
 	);
-		
+	
+    cudaDeviceSynchronize();
 
-	// Kernel: for each input circle @ i, set output_circle_list[i] = circle @ i covers tile.
-	// Kernel: prefix sum
-	// Kernel: 
+    exclusive_scan(output_circle_list, rounded_num_circles, scan_output_circle_list);
+	cudaDeviceSynchronize();
 
-#if 0
-	allocate: out index list
+	int out;
+	cudaMemcpy(&out, scan_output_circle_list + (num_input_circles - 1), sizeof(int), cudaMemcpyDeviceToHost);
 
+	getpositions<<<numBlocksNeeded, THREADS_PER_BLOCK>>>(output_circle_list, scan_output_circle_list, rounded_num_circles);
+	cudaDeviceSynchronize();
 
-	foreach circle:
-		
-#endif
+	writeindices<<<numBlocksNeeded, THREADS_PER_BLOCK>>>(output_circle_list, device_output_circles_list, rounded_num_circles);
+	cudaDeviceSynchronize();
 }
+
+//for each circle, build the arrays of circles (in order) that contribute to that circle
+void getCirclesInTilePixels(int **device_output_circles_list, int *num_circles_in_tile,
+	int topLeftX, int topLeftY, int bottomRightX, int bottomRightY) {
+    //cuda malloc 3D tensor, so that data is contiguous in memory for each pixel
+
+    //for each circle in the list, generate the indices of the tensor to write 1s to and write 1s
+
+    //then for each pixel, do an exclusive scan, call getpositions, write indices
+
+}
+
+//then write a cuda function that for a given pixel and its list of circles, render the pixel
+
+
 
 __global__ void student_kernelRenderCircles() {
 
