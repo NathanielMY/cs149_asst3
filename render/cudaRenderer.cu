@@ -14,6 +14,8 @@
 #include "sceneLoader.h"
 #include "util.h"
 
+#include <iostream>
+
 ////////////////////////////////////////////////////////////////////////////////////////
 // Putting all the cuda kernels here
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -517,6 +519,7 @@ void getCirclesInTile(
 	cudaDeviceSynchronize();
 
 	cudaMemcpy(num_circles_in_tile, scan_output_circle_list + (num_input_circles - 1), sizeof(int), cudaMemcpyDeviceToHost);
+	*num_circles_in_tile += 1;
 
 	getpositions<<<num_blocks, threads_per_block>>>(
 		device_output_circle_list, scan_output_circle_list, rounded_num_input_circles);
@@ -571,7 +574,7 @@ __global__ void copy_count(
 	if (idx > num_pixels) {
 		return;
 	}
-	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles_in_tile + num_circles_in_tile - 1]; //access last value to get total count
+	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles_in_tile + num_circles_in_tile - 1] + 1; //access last value to get total count
 }
 
 
@@ -1029,20 +1032,25 @@ CudaRenderer::advanceAnimation() {
     cudaDeviceSynchronize();
 }
 
+
 void
 CudaRenderer::render() {
 #if 1
-	int num_circles;
-	cudaMemcpy(&num_circles, &cuConstRendererParams.numCircles, sizeof(int), cudaMemcpyDeviceToHost);
+	struct GlobalConstants params;
+	cudaMemcpy(&params, &cuConstRendererParams, sizeof(struct GlobalConstants), 
+		cudaMemcpyDeviceToHost);
 
-	short image_width;
-	cudaMemcpy(&image_width, &cuConstRendererParams.imageWidth, sizeof(short), cudaMemcpyDeviceToHost);
-
-	short image_height;
-	cudaMemcpy(&image_height, &cuConstRendererParams.imageHeight, sizeof(short), cudaMemcpyDeviceToHost);
+	int num_circles = numCircles;
+	short image_width = image->width;
+	short image_height = image->height;
 
 	int tile_width = ((int)(image_width / (sqrt(sqrt(num_circles)) * 32))) * 32;
 	int tile_height = ((int)(image_height / (sqrt(sqrt(num_circles)) * 32))) * 32;
+
+	tile_width = image_width;
+	tile_height = image_height;
+
+	std::cout << image_width << ", " << image_height << std::endl;
 
 	for (int x = 0; x < image_width; x += tile_width) {
 		for (int y = 0; y < image_height; y += tile_height) {
@@ -1053,6 +1061,12 @@ CudaRenderer::render() {
 			int num_circles_in_tile;
 			getCirclesInTile(num_circles, &device_tile_circles_list, &num_circles_in_tile, 
 				x, y, x + cur_tile_width, y + cur_tile_height);
+			int rounded_num_circles_in_tile = nextPow2(num_circles_in_tile);
+
+			// std::cout << "!!!!!!!!"<<std::endl;
+			// std::cout << num_circles_in_tile << std::endl;
+
+#if 1
 
 			int *device_scanned_tensor;
 			int *device_count_circles_tensor;
@@ -1060,10 +1074,18 @@ CudaRenderer::render() {
 				&device_scanned_tensor, &device_count_circles_tensor,
 				x, y, x + cur_tile_width, y + cur_tile_height);
 
+			int *check = new int[tile_width * tile_height];
+			cudaMemcpy(check, device_count_circles_tensor, sizeof(int)*tile_width*tile_height, 
+				cudaMemcpyDeviceToHost);
+			for (int i = 0; i < tile_width*tile_height; ++i) {
+				std::cout << check[i] << " ";
+			}
+			std::cout<<std::endl;
+			delete []check;
+
 			int threads_per_block = 512;
 			int num_blocks = (cur_tile_width * cur_tile_height + threads_per_block - 1) / threads_per_block;
 
-			int rounded_num_circles_in_tile = nextPow2(num_circles_in_tile);
 			shade_per_pixel<<<num_blocks, threads_per_block>>>(
 				rounded_num_circles_in_tile, device_tile_circles_list, device_scanned_tensor,
 				device_count_circles_tensor, x, y, x + cur_tile_width, y + cur_tile_height
@@ -1074,6 +1096,7 @@ CudaRenderer::render() {
 			cudaFree(device_tile_circles_list);
 			cudaFree(device_scanned_tensor);
 			cudaFree(device_count_circles_tensor);
+#endif
 		}
 	}
 #else
