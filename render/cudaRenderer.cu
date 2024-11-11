@@ -497,7 +497,7 @@ void getCirclesInTile(
 	int bottomLeftX, int bottomLeftY, int topRightX, int topRightY)
 {
 	int *device_output_circle_list;
-    int rounded_num_input_circles = nextPow2(num_input_circles);
+    int rounded_num_input_circles = nextPow2(num_input_circles + 1);
 	cudaMalloc((void **)&device_output_circle_list, sizeof(int)*rounded_num_input_circles);
 
     int *scan_output_circle_list;
@@ -518,8 +518,8 @@ void getCirclesInTile(
     exclusive_scan(device_output_circle_list, rounded_num_input_circles, scan_output_circle_list, 512);
 	cudaDeviceSynchronize();
 
-	cudaMemcpy(num_circles_in_tile, scan_output_circle_list + (num_input_circles - 1), sizeof(int), cudaMemcpyDeviceToHost);
-	*num_circles_in_tile += 1;
+	cudaMemcpy(num_circles_in_tile, scan_output_circle_list + num_input_circles , sizeof(int), cudaMemcpyDeviceToHost);
+	
 
 	getpositions<<<num_blocks, threads_per_block>>>(
 		device_output_circle_list, scan_output_circle_list, rounded_num_input_circles);
@@ -574,22 +574,24 @@ __global__ void copy_count(
 	if (idx > num_pixels) {
 		return;
 	}
-	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles_in_tile + num_circles_in_tile - 1] + 1; //access last value to get total count
+	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles_in_tile + num_circles_in_tile]; //access last value to get total count
 }
 
 
 //for each pixel, build the arrays of circles (in order) that contribute to that pixel
+//device_output_circles_list is the list of circles that overlap our tile
 void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_tile,
 	int **device_scanned_tensor_ptr, int **count_circles_on_pixel_ptr,
 	int bottomLeftX, int bottomLeftY, int topRightX, int topRightY) {
 
-	int rounded_num_circles_in_tile = nextPow2(num_circles_in_tile);
+	int rounded_num_circles_in_tile = nextPow2(num_circles_in_tile + 1);
 	
     //cuda malloc 3D tensor, so that data is contiguous in memory for each pixel
 	int *device_pixels_per_circle_tensor;
 	int num_pixels = (topRightX - bottomLeftX) * (topRightY - bottomLeftY);
 	int tensor_count = rounded_num_circles_in_tile * num_pixels;
 	unsigned long tensor_size = sizeof(int) * tensor_count;
+
 	cudaMalloc((void **)&device_pixels_per_circle_tensor, tensor_size);
 	cudaMalloc((void **)device_scanned_tensor_ptr, tensor_size);
 	cudaMalloc((void **)count_circles_on_pixel_ptr, sizeof(int) * num_pixels);
@@ -605,7 +607,7 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 	int num_blocks_needed = (thread_count + threads_per_block - 1) / threads_per_block;
 
     populateTileCirclesTensor<<<num_blocks_needed, threads_per_block>>>(
-		device_pixels_per_circle_tensor, 
+		device_pixels_per_circle_tensor, //the tensor of 1s and 0s
 		device_output_circles_list,
 		num_circles_in_tile,
 		rounded_num_circles_in_tile,
@@ -1061,7 +1063,7 @@ CudaRenderer::render() {
 			int num_circles_in_tile;
 			getCirclesInTile(num_circles, &device_tile_circles_list, &num_circles_in_tile, 
 				x, y, x + cur_tile_width, y + cur_tile_height);
-			int rounded_num_circles_in_tile = nextPow2(num_circles_in_tile);
+			int rounded_num_circles_in_tile = nextPow2(num_circles_in_tile + 1);
 
 			// std::cout << "!!!!!!!!"<<std::endl;
 			// std::cout << num_circles_in_tile << std::endl;
