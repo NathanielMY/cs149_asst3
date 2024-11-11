@@ -379,32 +379,32 @@ __global__ void
 tensor_getpositions(int *mask_tensor, int *scanned_tensor, int rounded_num_circles_in_tile, int num_pixels)
 { 
 	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
-	if (t_idx >= rounded_num_circles_in_tile * num_pixels-1) { return; }
+	if (t_idx >= rounded_num_circles_in_tile * num_pixels) { return; }
 
     int pixel_idx = t_idx / rounded_num_circles_in_tile;
     int circle_idx = t_idx % rounded_num_circles_in_tile;
 
-    int *pixel_mask_tensor = mask_tensor + rounded_num_circles_in_tile * pixel_idx;
-	int *pixel_scanned_tensor = scanned_tensor + rounded_num_circles_in_tile * pixel_idx;
+    int pixel_offset = rounded_num_circles_in_tile * pixel_idx;
 
 	
-	pixel_mask_tensor[circle_idx] *= pixel_scanned_tensor[circle_idx + 1];
+	mask_tensor[pixel_offset + circle_idx] *= scanned_tensor[pixel_offset + circle_idx + 1];
 }
+
 //adapted for the tensor
 __global__ void
 tensor_writeindices(int *mask_tensor, int *scanned_tensor, int rounded_num_circles_in_tile, int num_pixels)
 {
 	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
-	if (t_idx >= rounded_num_circles_in_tile * num_pixels-1) { return; }
+	if (t_idx >= rounded_num_circles_in_tile * num_pixels) { return; }
 
     int pixel_idx = t_idx / rounded_num_circles_in_tile;
     int circle_idx = t_idx % rounded_num_circles_in_tile;
 
-    int *pixel_mask_tensor = mask_tensor + rounded_num_circles_in_tile * pixel_idx;
-	int *pixel_scanned_tensor = scanned_tensor + rounded_num_circles_in_tile * pixel_idx;
+    int pixel_offset = rounded_num_circles_in_tile * pixel_idx;
+	//int *pixel_scanned_tensor = scanned_tensor + rounded_num_circles_in_tile * pixel_idx;
 
-	if (pixel_mask_tensor[circle_idx] != 0) {
-		pixel_scanned_tensor[pixel_mask_tensor[t_idx]-1] = circle_idx;
+	if (mask_tensor[pixel_offset + circle_idx] != 0) {
+		scanned_tensor[pixel_offset + mask_tensor[pixel_offset + circle_idx]-1] = circle_idx;
 	}
 }
 
@@ -698,6 +698,24 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 		topRightY
 	);
 
+#if 0
+
+	int tile_width = (topRightX - bottomLeftX);
+	int tile_height = (topRightY - bottomLeftY);
+
+	int *check = new int[tile_width * tile_height * rounded_num_circles_in_tile];
+	cudaMemcpy(check, device_pixels_per_circle_tensor, sizeof(int)*tile_width*tile_height*rounded_num_circles_in_tile, 
+		cudaMemcpyDeviceToHost);
+
+	int numNonzero = 0;
+	for (int i = 0; i < tile_width * tile_height * rounded_num_circles_in_tile; ++i) {
+		if (check[i] != 0) ++numNonzero;
+	}
+	std::cout << "!!!!!";
+	std::cout << numNonzero << std::endl;
+	
+#endif
+
 	// Convert array of 1s and 0s to a list of indices into the global circle array.
 	tensor_exclusive_scan(device_pixels_per_circle_tensor, 
 		device_scanned_tensor, //output of exclusive scam
@@ -705,6 +723,25 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 		rounded_num_circles_in_tile, 
 		threads_per_block
 	);
+
+#if 0
+
+	int tile_width = (topRightX - bottomLeftX);
+	int tile_height = (topRightY - bottomLeftY);
+
+	int *check = new int[tile_width * tile_height * rounded_num_circles_in_tile];
+	cudaMemcpy(check, device_scanned_tensor, sizeof(int)*tile_width*tile_height*rounded_num_circles_in_tile, 
+		cudaMemcpyDeviceToHost);
+
+	int numNonzero = 0;
+	for (int i = 0; i < tile_width * tile_height * rounded_num_circles_in_tile; ++i) {
+		if (check[i] != 0) ++numNonzero;
+	}
+	std::cout << "!!!!!";
+	std::cout << numNonzero << std::endl;
+	
+#endif
+
 	
 	int num_blocks_for_pixels = (num_pixels + threads_per_block - 1) / threads_per_block;
 
@@ -718,19 +755,93 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 	
 	cudaDeviceSynchronize();	
 
+#if 0
+
+	int tile_width = (topRightX - bottomLeftX);
+	int tile_height = (topRightY - bottomLeftY);
+
+	int *check = new int[tile_width * tile_height * rounded_num_circles_in_tile];
+	cudaMemcpy(check, device_scanned_tensor, sizeof(int)*tile_width*tile_height*rounded_num_circles_in_tile, 
+		cudaMemcpyDeviceToHost);
+
+	int numNonzero = 0;
+	for (int i = 0; i < tile_width * tile_height * rounded_num_circles_in_tile; ++i) {
+		if (check[i] != 0) ++numNonzero;
+	}
+	std::cout << "!!!!!";
+	std::cout << numNonzero << std::endl;
+	
+#endif
+
 	//do 
+
+#if 0
+
+	int tile_width = (topRightX - bottomLeftX);
+	int tile_height = (topRightY - bottomLeftY);
+
+	int *check = new int[tile_width * tile_height * rounded_num_circles_in_tile];
+	cudaMemcpy(check, device_pixels_per_circle_tensor, sizeof(int)*tile_width*tile_height*rounded_num_circles_in_tile, 
+		cudaMemcpyDeviceToHost);
+
+	int numNonzero = 0;
+	for (int i = 0; i < tile_width * tile_height * rounded_num_circles_in_tile; ++i) {
+		if (check[i] != 0) ++numNonzero;
+	}
+	std::cout << "!!!!!";
+	std::cout << numNonzero << std::endl;
+	
+#endif
 
 	int num_blocks_everything = (rounded_num_circles_in_tile * num_pixels + threads_per_block - 1) / threads_per_block;
 		
 	tensor_getpositions<<<num_blocks_everything, threads_per_block>>>(
-		device_pixels_per_circle_tensor, device_scanned_tensor, rounded_num_circles_in_tile);		
+		device_pixels_per_circle_tensor, device_scanned_tensor, rounded_num_circles_in_tile, num_pixels);		
 	
 	cudaDeviceSynchronize();
 
+#if 0
+
+	int tile_width = (topRightX - bottomLeftX);
+	int tile_height = (topRightY - bottomLeftY);
+
+	int *check = new int[tile_width * tile_height * rounded_num_circles_in_tile];
+	cudaMemcpy(check, device_pixels_per_circle_tensor, sizeof(int)*tile_width*tile_height*rounded_num_circles_in_tile, 
+		cudaMemcpyDeviceToHost);
+
+	int numNonzero = 0;
+	for (int i = 0; i < tile_width * tile_height * rounded_num_circles_in_tile; ++i) {
+		if (check[i] != 0) ++numNonzero;
+	}
+	std::cout << "!!!!!";
+	std::cout << numNonzero << std::endl;
+	
+#endif
+
+
 	//FLAG - finish this - need to call get positions and write indices async to do on each tensor (i.e. write a for loop ovr pixels)
 	tensor_writeindices<<<num_blocks_everything, threads_per_block>>>(
-		device_pixels_per_circle_tensor, device_scanned_tensor, rounded_num_circles_in_tile);		
+		device_pixels_per_circle_tensor, device_scanned_tensor, rounded_num_circles_in_tile, num_pixels);		
 	cudaDeviceSynchronize();
+
+	
+#if 0
+
+	int tile_width = (topRightX - bottomLeftX);
+	int tile_height = (topRightY - bottomLeftY);
+
+	int *check = new int[tile_width * tile_height * rounded_num_circles_in_tile];
+	cudaMemcpy(check, device_scanned_tensor, sizeof(int)*tile_width*tile_height*rounded_num_circles_in_tile, 
+		cudaMemcpyDeviceToHost);
+
+	int numNonzero = 0;
+	for (int i = 0; i < tile_width * tile_height * rounded_num_circles_in_tile; ++i) {
+		if (check[i] != 0) ++numNonzero;
+	}
+	std::cout << "!!!!!";
+	std::cout << numNonzero << std::endl;
+	
+#endif
 
 	cudaFree(device_pixels_per_circle_tensor);
 
@@ -1124,10 +1235,12 @@ CudaRenderer::render() {
 	int tile_width = ((int)(image_width / (sqrt(sqrt(num_circles)) * 32))) * 32;
 	int tile_height = ((int)(image_height / (sqrt(sqrt(num_circles)) * 32))) * 32;
 
+	// tile_width = image_width / 8;
+	// tile_height = image_height / 4;
 	tile_width = image_width;
 	tile_height = image_height;
 
-	std::cout << image_width << ", " << image_height << std::endl;
+	// std::cout << image_width << ", " << image_height << std::endl;
 
 	for (int x = 0; x < image_width; x += tile_width) {
 		for (int y = 0; y < image_height; y += tile_height) {
@@ -1151,14 +1264,45 @@ CudaRenderer::render() {
 				&device_scanned_tensor, &device_count_circles_tensor,
 				x, y, x + cur_tile_width, y + cur_tile_height);
 
-			int *check = new int[tile_width * tile_height];
-			cudaMemcpy(check, device_count_circles_tensor, sizeof(int)*tile_width*tile_height, 
+#if 0
+			
+#if 0
+			int *check2 = new int[tile_width * tile_height];
+			cudaMemcpy(check2, device_count_circles_tensor, sizeof(int)*tile_width*tile_height,
 				cudaMemcpyDeviceToHost);
-			for (int i = 0; i < tile_width*tile_height; ++i) {
-				std::cout << check[i] << " ";
+
+			for (int i = 0; i < tile_width * tile_height; ++i) {
+				std::cout << check2[i] << " ";
 			}
 			std::cout<<std::endl;
+
+			delete []check2;
+#endif
+	
+
+#if 0
+			int *check = new int[tile_width * tile_height * rounded_num_circles_in_tile];
+			cudaMemcpy(check, device_scanned_tensor, sizeof(int)*tile_width*tile_height*rounded_num_circles_in_tile, 
+				cudaMemcpyDeviceToHost);
+
+			int numNonzero = 0;
+			for (int i = 0; i < tile_width * tile_height * rounded_num_circles_in_tile; ++i) {
+				if (check[i] != 0) ++numNonzero;
+			}
+			std::cout << numNonzero << std::endl;
+#endif
+
+#if 0
+			for (int i = 0; i < rounded_num_circles_in_tile; ++i) {
+				std::cout << 
+					check[(image_height / 2 * image_width + image_width / 2) * rounded_num_circles_in_tile + i]
+					<<std::endl;
+			}
+#endif
+
+			std::cout<<std::endl;
 			delete []check;
+#endif
 
 			int threads_per_block = 512;
 			int num_blocks = (cur_tile_width * cur_tile_height + threads_per_block - 1) / threads_per_block;
