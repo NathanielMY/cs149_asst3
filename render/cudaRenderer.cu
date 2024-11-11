@@ -365,10 +365,46 @@ getpositions(int *mask, int *scanned_mask, int N)
 __global__ void
 writeindices(int *positions, int *result, int N)
 {
+    
 	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
 	if (t_idx >= N-1) { return; }
+
 	if (positions[t_idx] != 0) {
 		result[positions[t_idx]-1] = t_idx;
+	}
+}
+
+//adapted for the tensor
+__global__ void
+tensor_getpositions(int *mask_tensor, int *scanned_tensor, int rounded_num_circles_in_tile, int num_pixels)
+{ 
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (t_idx >= rounded_num_circles_in_tile * num_pixels-1) { return; }
+
+    int pixel_idx = t_idx / rounded_num_circles_in_tile;
+    int circle_idx = t_idx % rounded_num_circles_in_tile;
+
+    int *pixel_mask_tensor = mask_tensor + rounded_num_circles_in_tile * pixel_idx;
+	int *pixel_scanned_tensor = scanned_tensor + rounded_num_circles_in_tile * pixel_idx;
+
+	
+	pixel_mask_tensor[circle_idx] *= pixel_scanned_tensor[circle_idx + 1];
+}
+//adapted for the tensor
+__global__ void
+tensor_writeindices(int *mask_tensor, int *scanned_tensor, int rounded_num_circles_in_tile, int num_pixels)
+{
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (t_idx >= rounded_num_circles_in_tile * num_pixels-1) { return; }
+
+    int pixel_idx = t_idx / rounded_num_circles_in_tile;
+    int circle_idx = t_idx % rounded_num_circles_in_tile;
+
+    int *pixel_mask_tensor = mask_tensor + rounded_num_circles_in_tile * pixel_idx;
+	int *pixel_scanned_tensor = scanned_tensor + rounded_num_circles_in_tile * pixel_idx;
+
+	if (pixel_mask_tensor[circle_idx] != 0) {
+		pixel_scanned_tensor[pixel_mask_tensor[t_idx]-1] = circle_idx;
 	}
 }
 
@@ -444,12 +480,61 @@ void exclusive_scan(int* input, int N, int* result, int THREADS_PER_BLOCK)
 	}
 }
 
+__global__ void
+tensor_scan_upsweep(int *device_pixel_circles_mask, int rounded_num_circles,
+	int source_step_size, int destination_step_size, int num_pixels)
+{
+	int t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+	int num_threads_per_pixel = rounded_num_circles / destination_step_size;
+
+	if (t_idx >= num_threads_per_pixel * num_pixels) { return; }
+
+	int pixel_idx = t_idx / num_threads_per_pixel;
+
+	int offset_idx = t_idx % num_threads_per_pixel;
+
+	int *circles_mask = device_pixel_circles_mask + pixel_idx * rounded_num_circles;
+
+	unsigned long write_idx = offset_idx * destination_step_size;
+	circles_mask[write_idx + destination_step_size - 1] +=
+		circles_mask[write_idx + source_step_size - 1];
+}
+
+__global__ void
+tensor_scan_downsweep(int *device_pixel_circles_mask, int rounded_num_circles,
+	int source_step_size, int destination_step_size, int num_pixels)
+{
+	int t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+	int num_threads_per_pixel = rounded_num_circles / destination_step_size;
+
+	if (t_idx >= num_threads_per_pixel * num_pixels) { return; }
+
+	int pixel_idx = t_idx / num_threads_per_pixel;
+
+	int offset_idx = t_idx % num_threads_per_pixel;
+
+	int *circles_mask = device_pixel_circles_mask + pixel_idx * rounded_num_circles;
+	if (offset_idx == 0 && destination_step_size == rounded_num_circles) {
+		circles_mask[rounded_num_circles - 1] = 0;
+	}
+
+	int write_idx = offset_idx * destination_step_size;
+
+	int tmp = circles_mask[write_idx + source_step_size - 1];
+	circles_mask[write_idx + source_step_size - 1] =
+		circles_mask[write_idx + destination_step_size - 1];
+	circles_mask[write_idx + destination_step_size - 1] += tmp;
+}
+
+
 
 void tensor_exclusive_scan(
-		int* input_device_3d_tensor, 
-		int* device_3d_tensor, 
-		int num_pixels, 
-		int rounded_num_circles_in_tile, 
+		int* input_device_3d_tensor,
+		int* device_3d_tensor,
+		int num_pixels,
+		int rounded_num_circles_in_tile,
 		int THREADS_PER_BLOCK)
 {
 	cudaMemcpy(device_3d_tensor, input_device_3d_tensor, (num_pixels * rounded_num_circles_in_tile)*sizeof(int), cudaMemcpyDeviceToDevice);
@@ -458,32 +543,25 @@ void tensor_exclusive_scan(
 	int destinationStepSize = 1;
 	for (int sourceStepSize= 1; sourceStepSize < rounded_num_circles_in_tile; sourceStepSize = destinationStepSize) {
 		destinationStepSize *= 2;
-	
-		int numThreadsNeeded = rounded_num_circles_in_tile / destinationStepSize;
+
+		int numThreadsNeeded = num_pixels * rounded_num_circles_in_tile / destinationStepSize;
 		int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
-		for (int x = 0; x < num_pixels; x++) {
-			int *pixel_circles_list = device_3d_tensor + x * rounded_num_circles_in_tile;
+		tensor_scan_upsweep<<<numBlocks, THREADS_PER_BLOCK>>>(device_3d_tensor, rounded_num_circles_in_tile,
+			sourceStepSize, destinationStepSize, num_pixels);
 
-			scan_upsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
-				pixel_circles_list, rounded_num_circles_in_tile, sourceStepSize, destinationStepSize);
-		}
 		cudaDeviceSynchronize();
 	}
 
 	// downsweep
 	destinationStepSize = rounded_num_circles_in_tile;
 	for (int sourceStepSize = rounded_num_circles_in_tile/2; sourceStepSize >= 1; sourceStepSize /= 2) {
-		
-		int numThreadsNeeded = rounded_num_circles_in_tile / destinationStepSize;
-		int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;	
-		
-		for (int x = 0; x < num_pixels; x++) {
-			int *pixel_circles_list = device_3d_tensor + x * rounded_num_circles_in_tile;
-			
-			scan_downsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
-				pixel_circles_list, rounded_num_circles_in_tile, sourceStepSize, destinationStepSize);
-		}
+
+		int numThreadsNeeded = num_pixels * rounded_num_circles_in_tile / destinationStepSize;
+		int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+
+		tensor_scan_downsweep<<<numBlocks, THREADS_PER_BLOCK>>>(device_3d_tensor, rounded_num_circles_in_tile,
+			sourceStepSize, destinationStepSize, num_pixels);
 		cudaDeviceSynchronize();
 
 		destinationStepSize = sourceStepSize;
@@ -642,22 +720,16 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 
 	//do 
 
-	int num_blocks_circles = (rounded_num_circles_in_tile + threads_per_block - 1) / threads_per_block;
-	for (int x = 0; x < num_pixels; ++x) {
-		int *mask_output_pixel = device_pixels_per_circle_tensor + rounded_num_circles_in_tile * x;
-		int *scan_output_pixel = device_scanned_tensor + rounded_num_circles_in_tile * x;
-		getpositions<<<num_blocks_circles, threads_per_block>>>(
-			mask_output_pixel, scan_output_pixel, rounded_num_circles_in_tile);		
-	}
+	int num_blocks_everything = (rounded_num_circles_in_tile * num_pixels + threads_per_block - 1) / threads_per_block;
+		
+	tensor_getpositions<<<num_blocks_everything, threads_per_block>>>(
+		device_pixels_per_circle_tensor, device_scanned_tensor, rounded_num_circles_in_tile);		
+	
 	cudaDeviceSynchronize();
 
 	//FLAG - finish this - need to call get positions and write indices async to do on each tensor (i.e. write a for loop ovr pixels)
-	for (int x = 0; x < num_pixels; ++x) {
-		int *mask_output_pixel = device_pixels_per_circle_tensor + rounded_num_circles_in_tile * x;
-		int *scan_output_pixel = device_scanned_tensor + rounded_num_circles_in_tile * x;
-		writeindices<<<num_blocks_circles, threads_per_block>>>(
-			mask_output_pixel, scan_output_pixel, rounded_num_circles_in_tile);		
-	}
+	tensor_writeindices<<<num_blocks_everything, threads_per_block>>>(
+		device_pixels_per_circle_tensor, device_scanned_tensor, rounded_num_circles_in_tile);		
 	cudaDeviceSynchronize();
 
 	cudaFree(device_pixels_per_circle_tensor);
