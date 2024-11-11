@@ -1,0 +1,26 @@
+Rendering to 1024x1024 image
+Loaded scene with 3 circles
+Loaded scene with 3 circles
+---------------------------------------------------------
+Initializing CUDA for CudaRenderer
+Found 1 CUDA devices
+Device 0: NVIDIA T4G
+   SMs:        40
+   Global mem: 14918 MB
+   CUDA Cap:   7.5
+---------------------------------------------------------
+
+Running benchmark, 1 frames, beginning at frame 0 ...
+Dumping frames to logs/output_xxx.ppm
+!!!!asdfasdf!!!4
+Copying image data from device
+Wrote image file logs/output_0000.ppm
+Copying image data from device
+***************** Correctness check passed **************************
+Clear:    0.1367 ms
+Advance:  0.0021 ms
+Render:   3.1033 ms
+Total:    3.2420 ms
+File IO:  79.5926 ms
+
+Overall:  0.1053 sec (note units are seconds)
