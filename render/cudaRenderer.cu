@@ -560,9 +560,12 @@ populateTileCirclesTensor(
     float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
     float  rad = cuConstRendererParams.radius[global_circle_idx];
 
-	bool contained = (pixelX >= p.x - rad) & (pixelX <= p.x + rad) & (pixelY >= p.y - rad) & (pixelY <= p.y + rad);
+    short imageWidth = cuConstRendererParams.imageWidth;
+    short imageHeight = cuConstRendererParams.imageHeight;
 
-	device_tile_tensor[pixelIdx * rounded_num_circles_in_tile + circleIdx] = contained ? 1 : 0;
+	bool contained = (pixelX >= imageWidth * (p.x - rad)) && (pixelX <= imageWidth * (p.x + rad)) && (pixelY >= imageHeight * (p.y - rad)) && (pixelY <=  imageHeight * (p.y + rad));
+
+	device_tile_tensor[pixelIdx * rounded_num_circles_in_tile + circleIdx] = (contained) ? 1 : 0;
 }
 
 //cuda kernel function to copy the number of circles on top of a pixel into the right array index
@@ -619,7 +622,7 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 
 	// Convert array of 1s and 0s to a list of indices into the global circle array.
 	tensor_exclusive_scan(device_pixels_per_circle_tensor, 
-		device_scanned_tensor,
+		device_scanned_tensor, //output of exclusive scam
 		tensor_count / rounded_num_circles_in_tile, 
 		rounded_num_circles_in_tile, 
 		threads_per_block
