@@ -575,20 +575,22 @@ __device__ __inline__ void copy_count(int *count_circles_on_pixel, int* device_s
 
 //for each pixel, build the arrays of circles (in order) that contribute to that pixel
 void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_tile,
+	int **device_scanned_tensor_ptr, int **count_circles_on_pixel_ptr,
 	int bottomLeftX, int bottomLeftY, int topRightX, int topRightY) {
 
 	int rounded_num_circles_in_tile = nextPow2(num_circles_in_tile);
 	
     //cuda malloc 3D tensor, so that data is contiguous in memory for each pixel
 	int *device_pixels_per_circle_tensor;
-	int *device_scanned_tensor;
-	int *count_circles_on_pixel;
 	int num_pixels = (topRightX - bottomLeftX) * (topRightY - bottomLeftY);
 	int tensor_count = rounded_num_circles_in_tile * num_pixels;
 	unsigned long tensor_size = sizeof(int) * tensor_count;
 	cudaMalloc((void **)&device_pixels_per_circle_tensor, tensor_size);
-	cudaMalloc((void **)&device_scanned_tensor, tensor_size);
-	cudaMalloc((void **)&count_circles_on_pixel, sizeof(int) * num_pixels);
+	cudaMalloc((void **)device_scanned_tensor_ptr, tensor_size);
+	cudaMalloc((void **)count_circles_on_pixel_ptr, sizeof(int) * num_pixels);
+
+	int *device_scanned_tensor = *device_scanned_tensor_ptr;
+	int *count_circles_on_pixel = *count_circles_on_pixel_ptr;
 
 	cudaMemset(device_pixels_per_circle_tensor, 0, tensor_size);
 	//cudaMemset(device_scanned_tensor, 0, tensor_size);
@@ -619,21 +621,23 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 	int num_blocks_for_pixels = (num_pixels + threads_per_block - 1) / threads_per_block;
 
 	//now we do get positions and 
-	copy_count<<<num_block_for_pixels, threads_per_block>>>(
+	copy_count<<<num_blocks_for_pixels, threads_per_block>>>(
 		count_circles_on_pixel, 
 		device_scanned_tensor, 
 		num_pixels, 
 		num_circles_in_tile, 
 		rounded_num_circles_in_tile);
+	
+	cudaDeviceSynchronize();	
 
 	//do 
 
-	int num_block_circles = (rounded_num_circles_in_tile + threads_per_block - 1) / threads_per_block;
+	int num_blocks_circles = (rounded_num_circles_in_tile + threads_per_block - 1) / threads_per_block;
 	for (int x = 0; x < num_pixels; ++x) {
 		int *mask_output_pixel = device_pixels_per_circle_tensor + rounded_num_circles_in_tile * x;
 		int *scan_output_pixel = device_scanned_tensor + rounded_num_circles_in_tile * x;
-		getpositions<<<num_blocks_circle, threads_per_block>>>(
-			mask_output_pixel, scan_output_pixel, rounded_num_input_circles);		
+		getpositions<<<num_blocks_circles, threads_per_block>>>(
+			mask_output_pixel, scan_output_pixel, rounded_num_circles_in_tile);		
 	}
 	cudaDeviceSynchronize();
 
@@ -641,10 +645,12 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 	for (int x = 0; x < num_pixels; ++x) {
 		int *mask_output_pixel = device_pixels_per_circle_tensor + rounded_num_circles_in_tile * x;
 		int *scan_output_pixel = device_scanned_tensor + rounded_num_circles_in_tile * x;
-		writeindices<<<num_blocks_circle, threads_per_block>>>(
-			mask_output_pixel, scan_output_pixel, rounded_num_input_circles);		
+		writeindices<<<num_blocks_circles, threads_per_block>>>(
+			mask_output_pixel, scan_output_pixel, rounded_num_circles_in_tile);		
 	}
 	cudaDeviceSynchronize();
+
+	cudaFree(device_pixels_per_circle_tensor);
 
 	//FLAG - device_scanned_tensor is our tensor of circle idxs on each pixel
 }
@@ -1040,8 +1046,24 @@ CudaRenderer::render() {
 			getCirclesInTile(num_circles, &device_tile_circles_list, &num_circles_in_tile, 
 				x, y, x + tile_width, y + tile_height);
 
+			int *device_scanned_tensor;
+			int *device_count_circles_tensor;
 			getCirclesInTilePixels(device_tile_circles_list, num_circles_in_tile,
+				&device_scanned_tensor, &device_count_circles_tensor,
 				x, y, x + tile_height, y + tile_height);
+
+			int threads_per_block = 512;
+			int num_blocks = (tile_width * tile_height + threads_per_block - 1) / threads_per_block;
+
+			int rounded_num_circles_in_tile = nextPow2(num_circles_in_tile);
+			shade_per_pixel<<<num_blocks, threads_per_block>>>(
+				rounded_num_circles_in_tile, device_tile_circles_list, device_scanned_tensor,
+				device_count_circles_tensor, x, y, x + tile_width, y + tile_height
+			);
+
+			cudaFree(device_tile_circle_list);
+			cudaFree(device_scanned_tensor);
+			cudaFree(deivce_count_circles_tensor);
 		}
 	}
 }
