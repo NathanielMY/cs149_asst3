@@ -314,35 +314,6 @@ __global__ void kernelAdvanceSnowflake() {
     *((float3*)velocityPtr) = velocity;
 }
 
-__global__ void circlesTileMask(
-	int *device_input_circles_list, 
-	int num_circles, 
-	int rounded_num_circles,
-	int *device_output_circles_list,
-	int bottomLeftX, int bottomLeftY, int topRightX, int topRightY)
-{
-	unsigned long idx = blockDim.x * blockIdx.x + threadIdx.x;
-
-	if (idx >= num_circles) { return; }
-
-	int index3 = 3 * idx;
-
-    float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
-    float  rad = cuConstRendererParams.radius[idx];
-
-	short imageWidth = cuConstRendererParams.imageWidth;
-	short imageHeight = cuConstRendererParams.imageHeight;
-
-	float circle_bottom_left_x = imageWidth * (p.x - rad);
-	float circle_bottom_left_y = imageHeight * (p.y - rad);
-	float circle_top_right_x = imageWidth * (p.x + rad);
-	float circle_top_right_y = imageHeight * (p.y + rad);
-
-	bool x_overlaps = (bottomLeftX < circle_top_right_x + 1) && (topRightX + 1 > circle_bottom_left_x);
-	bool y_overlaps = (bottomLeftY < circle_top_right_y + 1) && (circle_bottom_left_y < topRightY + 1);
-	device_output_circles_list[idx] = (x_overlaps && y_overlaps) ? 1 : 0;
-}
-
 // helper function to round an integer up to the next power of 2
 static inline int nextPow2(int n) {
     n--;
@@ -572,6 +543,35 @@ void tensor_exclusive_scan(
 }
 
 
+__global__ void circlesTileMask(
+	int num_circles, 
+	int rounded_num_circles,
+	int *device_output_circles_list,
+	int bottomLeftX, int bottomLeftY, int topRightX, int topRightY)
+{
+	unsigned long idx = blockDim.x * blockIdx.x + threadIdx.x;
+
+	if (idx >= num_circles) { return; }
+
+	int index3 = 3 * idx;
+
+    float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
+    float  rad = cuConstRendererParams.radius[idx];
+
+	short imageWidth = cuConstRendererParams.imageWidth;
+	short imageHeight = cuConstRendererParams.imageHeight;
+
+	float circle_bottom_left_x = imageWidth * (p.x - rad);
+	float circle_bottom_left_y = imageHeight * (p.y - rad);
+	float circle_top_right_x = imageWidth * (p.x + rad);
+	float circle_top_right_y = imageHeight * (p.y + rad);
+
+	bool x_overlaps = (bottomLeftX < circle_top_right_x + 1) && (topRightX + 1 > circle_bottom_left_x);
+	bool y_overlaps = (bottomLeftY < circle_top_right_y + 1) && (circle_bottom_left_y < topRightY + 1);
+	device_output_circles_list[idx] = (x_overlaps && y_overlaps) ? 1 : 0;
+}
+
+
 void getCirclesInTile(
 	int num_input_circles,
 	int **output_circle_list_ptr, int *num_circles_in_tile,
@@ -584,13 +584,10 @@ void getCirclesInTile(
     int *scan_output_circle_list;
     cudaMalloc((void **)&scan_output_circle_list, sizeof(int)*rounded_num_input_circles);
 
-	int *device_input_circles_list;
-	cudaMalloc((void **)&device_input_circles_list, sizeof(int)*rounded_num_input_circles);
-
 	int threads_per_block = 256;
 	int num_blocks = (num_input_circles + threads_per_block - 1) / threads_per_block;
 	circlesTileMask<<<num_blocks, threads_per_block>>>(
-		device_input_circles_list, num_input_circles, rounded_num_input_circles, device_output_circle_list,
+        num_input_circles, rounded_num_input_circles, device_output_circle_list,
 		bottomLeftX, bottomLeftY, topRightX, topRightY
 	);
 
@@ -611,6 +608,8 @@ void getCirclesInTile(
 	cudaDeviceSynchronize();
 
 	*output_circle_list_ptr = scan_output_circle_list;
+
+    cudaFree(device_output_circle_list);
 }
 
 __global__ void
@@ -704,7 +703,7 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 		topRightY
 	);
 
-#if 0
+#if 1
 
 	int tile_width = (topRightX - bottomLeftX);
 	int tile_height = (topRightY - bottomLeftY);
