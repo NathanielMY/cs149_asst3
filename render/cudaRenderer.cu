@@ -312,6 +312,289 @@ __global__ void kernelAdvanceSnowflake() {
     *((float3*)velocityPtr) = velocity;
 }
 
+__global__ void circlesTileMask(
+	int *device_input_circles_list, 
+	int num_circles, 
+	int rounded_num_circles,
+	int *device_output_circles_list,
+	int bottomLeftX, int bottomLeftY, int topRightX, int topRightY)
+{
+	unsigned long idx = blockDim.x * blockIdx.x + threadIdx.x;
+
+	if (idx >= num_circles) { return; }
+
+	int index3 = 3 * idx;
+
+    float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
+    float  rad = cuConstRendererParams.radius[idx];
+
+	float circle_bottom_left_x = p.x - rad;
+	float circle_bottom_left_y = p.y - rad;
+	float circle_top_right_x = p.x + rad;
+	float circle_top_right_y = p.y + rad;
+
+	bool x_overlaps = (bottomLeftX < circle_top_right_x) && (topRightX > circle_bottom_left_x);
+	bool y_overlaps = (bottomLeftY < circle_top_right_y) && (circle_bottom_left_y < topRightY);
+	device_output_circles_list[idx] = (x_overlaps && y_overlaps) ? 1 : 0;
+}
+
+// helper function to round an integer up to the next power of 2
+static inline int nextPow2(int n) {
+    n--;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n++;
+	return n;
+}
+
+//copied from scan.cu
+__global__ void
+getpositions(int *mask, int *scanned_mask, int N)
+{ 
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (t_idx >= N-1) { return; }
+	
+	mask[t_idx] *= scanned_mask[t_idx + 1];
+}
+//copied from scan.cu
+__global__ void
+writeindices(int *positions, int *result, int N)
+{
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (t_idx >= N-1) { return; }
+	if (positions[t_idx] != 0) {
+		result[positions[t_idx]-1] = t_idx;
+	}
+}
+
+__global__ void
+scan_upsweep(int* buffer, int N, int sourceStepSize, int destinationStepSize)
+{
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	// if (t_idx * destinationStepSize + destinationStepSize - 1 >= N) { return; }
+	if (t_idx >= N / destinationStepSize) { return; }
+	
+	unsigned long write_idx = t_idx * destinationStepSize;
+	buffer[write_idx + destinationStepSize - 1] += buffer[write_idx + sourceStepSize - 1];
+}
+
+__global__ void
+scan_downsweep(int* buffer, int N, int sourceStepSize, int destinationStepSize)
+{
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	// if (t_idx * destinationStepSize + destinationStepSize - 1 >= N) { return; }
+	if (t_idx >= N / destinationStepSize) { return; }
+
+	unsigned long write_idx = t_idx * destinationStepSize;
+	if (t_idx == 0 && destinationStepSize == N) { buffer[N-1] = 0; }
+
+	int tmp = buffer[write_idx + sourceStepSize - 1];
+	buffer[write_idx + sourceStepSize - 1] = buffer[write_idx + destinationStepSize - 1];
+	buffer[write_idx + destinationStepSize - 1] += tmp;
+}
+
+// exclusive_scan --
+//
+// Implementation of an exclusive scan on global memory array `input`,
+// with results placed in global memory `result`.
+//
+// N is the logical size of the input and output arrays, however
+// students can assume that both the start and result arrays we
+// allocated with next power-of-two sizes as described by the comments
+// in cudaScan().  This is helpful, since your parallel scan
+// will likely write to memory locations beyond N, but of course not
+// greater than N rounded up to the next power of 2.
+//
+// Also, as per the comments in cudaScan(), you can implement an
+// "in-place" scan, since the timing harness makes a copy of input and
+// places it in result
+void exclusive_scan(int* input, int N, int* result, int THREADS_PER_BLOCK)
+{
+	cudaMemcpy(result, input, N*sizeof(int), cudaMemcpyDeviceToDevice);
+	N = nextPow2(N);
+
+	// upsweep
+	int destinationStepSize = 1;
+	for (int sourceStepSize= 1; sourceStepSize < N; sourceStepSize = destinationStepSize) {
+		destinationStepSize *= 2;
+	
+		int numThreadsNeeded = N / destinationStepSize;
+		int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+		scan_upsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
+			result, N, sourceStepSize, destinationStepSize);
+		cudaDeviceSynchronize();
+	}
+
+	// downsweep
+	destinationStepSize = N;
+	for (int sourceStepSize = N/2; sourceStepSize >= 1; sourceStepSize /= 2) {
+		
+		int numThreadsNeeded = N / destinationStepSize;
+		int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;	
+		scan_downsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
+			result, N, sourceStepSize, destinationStepSize);
+		cudaDeviceSynchronize();
+
+		destinationStepSize = sourceStepSize;
+	}
+}
+
+
+void tensor_exclusive_scan(int* device_3d_tensor, int num_pixels, int rounded_num_circles_in_tile, int THREADS_PER_BLOCK)
+{
+	//cudaMemcpy(result, input, N*sizeof(int), cudaMemcpyDeviceToDevice);
+	//N = nextPow2(N);
+
+	// upsweep
+	int destinationStepSize = 1;
+	for (int sourceStepSize= 1; sourceStepSize < rounded_num_circles_in_tile; sourceStepSize = destinationStepSize) {
+		destinationStepSize *= 2;
+	
+		int numThreadsNeeded = rounded_num_circles_in_tile / destinationStepSize;
+		int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+
+		for (int x = 0; x < num_pixels; x++) {
+			int *pixel_circles_list = device_3d_tensor + x * rounded_num_circles_in_tile;
+
+			scan_upsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
+				pixel_circles_list, rounded_num_circles_in_tile, sourceStepSize, destinationStepSize);
+		}
+		cudaDeviceSynchronize();
+	}
+
+	// downsweep
+	destinationStepSize = rounded_num_circles_in_tile;
+	for (int sourceStepSize = rounded_num_circles_in_tile/2; sourceStepSize >= 1; sourceStepSize /= 2) {
+		
+		int numThreadsNeeded = rounded_num_circles_in_tile / destinationStepSize;
+		int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;	
+		
+		for (int x = 0; x < num_pixels; x++) {
+			int *pixel_circles_list = device_3d_tensor + x * rounded_num_circles_in_tile;
+			
+			scan_downsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
+				pixel_circles_list, rounded_num_circles_in_tile, sourceStepSize, destinationStepSize);
+		}
+		cudaDeviceSynchronize();
+
+		destinationStepSize = sourceStepSize;
+	}
+}
+
+
+void getCirclesInTile(
+	int num_input_circles,
+	int **output_circle_list_ptr, int *num_circles_in_tile,
+	int bottomLeftX, int bottomLeftY, int topRightX, int topRightY)
+{
+	int *device_output_circle_list;
+    int rounded_num_input_circles = nextPow2(num_input_circles);
+	cudaMalloc((void **)&device_output_circle_list, sizeof(int)*rounded_num_input_circles);
+
+    int *scan_output_circle_list;
+    cudaMalloc((void **)&scan_output_circle_list, sizeof(int)*rounded_num_input_circles);
+
+	int *device_input_circles_list;
+	cudaMalloc((void **)&device_input_circles_list, sizeof(int)*rounded_num_input_circles);
+
+	int threads_per_block = 256;
+	int num_blocks = (num_input_circles + threads_per_block - 1) / threads_per_block;
+	circlesTileMask<<<num_blocks, threads_per_block>>>(
+		device_input_circles_list, num_input_circles, rounded_num_input_circles, device_output_circle_list,
+		bottomLeftX, bottomLeftY, topRightX, topRightY
+	);
+
+    cudaDeviceSynchronize();
+
+    exclusive_scan(device_output_circle_list, rounded_num_input_circles, scan_output_circle_list, 512);
+	cudaDeviceSynchronize();
+
+	cudaMemcpy(num_circles_in_tile, scan_output_circle_list + (num_input_circles - 1), sizeof(int), cudaMemcpyDeviceToHost);
+
+	getpositions<<<num_blocks, threads_per_block>>>(
+		device_output_circle_list, scan_output_circle_list, rounded_num_input_circles);
+	cudaDeviceSynchronize();
+
+	writeindices<<<num_blocks, threads_per_block>>>(
+		device_output_circle_list, device_output_circle_list, rounded_num_input_circles);
+	cudaDeviceSynchronize();
+
+	*output_circle_list_ptr = device_output_circle_list;
+}
+
+__global__ void
+populateTileCirclesTensor(
+		int *device_tile_tensor, 
+		int *device_circles_in_tile,
+		int num_circles_in_tile,
+		int rounded_num_circles_in_tile,
+		int bottomLeftX, int bottomLeftY, int topRightX, int topRightY)
+{
+	int idx = blockDim.x * blockIdx.x + threadIdx.x;
+
+	int tileWidth = topRightX - bottomLeftX;
+	int tileHeight = topRightY - bottomLeftY;
+
+	if (idx > tileWidth * tileHeight * num_circles_in_tile) { return; }
+
+	int circleIdx = idx % num_circles_in_tile;
+	int pixelIdx = idx / num_circles_in_tile;
+	
+	int pixelX = pixelIdx % tileWidth + bottomLeftX;
+	int pixelY = pixelIdx / tileWidth + bottomLeftY;
+
+    int global_circle_idx = device_circles_in_tile[circleIdx];
+	
+	int index3 = 3 * global_circle_idx;
+
+    float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
+    float  rad = cuConstRendererParams.radius[global_circle_idx];
+
+	bool contained = (pixelX >= p.x - rad) & (pixelX <= p.x + rad) & (pixelY >= p.y - rad) & (pixelY <= p.y + rad);
+
+	device_tile_tensor[pixelIdx * rounded_num_circles_in_tile + circleIdx] = contained ? 1 : 0;
+}
+
+
+//for each pixel, build the arrays of circles (in order) that contribute to that pixel
+void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_tile,
+	int bottomLeftX, int bottomLeftY, int topRightX, int topRightY) {
+
+	int rounded_num_circles_in_tile = nextPow2(num_circles_in_tile);
+	
+    //cuda malloc 3D tensor, so that data is contiguous in memory for each pixel
+	int *device_pixels_per_circle_tensor;
+	int tensor_count = rounded_num_circles_in_tile * (topRightX - bottomLeftX) * (topRightY - bottomLeftY);
+	unsigned long tensor_size = sizeof(int) * tensor_count;
+	cudaMalloc((void **)&device_pixels_per_circle_tensor, tensor_size);
+	cudaMemset(device_pixels_per_circle_tensor, 0, tensor_size);
+  
+ 	int threads_per_block = 512;
+    int thread_count = tensor_count * num_circles_in_tile / rounded_num_circles_in_tile;
+	int num_blocks_needed = (thread_count + threads_per_block - 1) / threads_per_block;
+    populateTileCirclesTensor<<<num_blocks_needed, threads_per_block>>>(
+		device_pixels_per_circle_tensor, 
+		device_output_circles_list,
+		num_circles_in_tile,
+		rounded_num_circles_in_tile,
+		bottomLeftX,
+		bottomLeftY,
+		topRightX,
+		topRightY
+	);
+
+	tensor_exclusive_scan(device_pixels_per_circle_tensor, 
+		tensor_count / rounded_num_circles_in_tile, 
+		rounded_num_circles_in_tile, 
+		threads_per_block
+	);
+	
+	//now we do shade pixels
+}
+
 // shadePixel -- (CUDA device code)
 //
 // given a pixel and a circle, determines the contribution to the
@@ -427,118 +710,9 @@ __global__ void kernelRenderCircles() {
     }
 }
 
-__global__ void circlesTileMask(
-	int *device_input_circles_list, 
-	int num_circles, 
-	int rounded_num_circles,
-	int *device_output_circles_list)
-{
-	unsigned long idx = blockDim.x * blockIdx.x + threadIdx.x;
-
-    //check if circle overlaps with tile, and if so, write a 1 to device_output_circles_list[idx]
-}
-
-// helper function to round an integer up to the next power of 2
-static inline int nextpow2(int n) {
-    n--;
-    n |= n >> 1;
-    n |= n >> 2;
-    n |= n >> 4;
-    n |= n >> 8;
-    n |= n >> 16;
-    n++;
-	return n;
-}
-
-//copied from scan.cu
-__global__ void
-getpositions(int *mask, int *scanned_mask, int N)
-{ 
-	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
-	if (t_idx >= N-1) { return; }
-	
-	mask[t_idx] *= scanned_mask[t_idx + 1];
-}
-//copied from scan.cu
-__global__ void
-writeindices(int *positions, int *result, int N)
-{
-	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
-	if (t_idx >= N-1) { return; }
-	if (positions[t_idx] != 0) {
-		result[positions[t_idx]-1] = t_idx;
-	}
-}
-
-void getCirclesInTile(
-	int *host_input_circles_list, int num_circles,
-	int **device_output_circles_list, int *num_circles_in_tile,
-	int topLeftX, int topLeftY, int bottomRightX, int bottomRightY)
-{
-	int *output_circle_list;
-    int rounded_num_circles = nextpow2(num_circles);
-	cudaMalloc((void **)&output_circle_list, rounded_num_circles);
-
-    int *scan_output_circle_list;
-    cudaMalloc((void **)&scan_output_circle_list, rounded_num_circles);
-    
-
-	int threads_per_block = 256;
-	int num_blocks = (num_input_circles + threads_per_block - 1) / threads_per_block;
-
-
-	circlesTileMask<<<num_blocks, threads_per_block>>>(
-		device_input_circles_list, num_input_circles, rounded_num_circles, output_circle_list
-	);
-	
-    cudaDeviceSynchronize();
-
-    exclusive_scan(output_circle_list, rounded_num_circles, scan_output_circle_list);
-	cudaDeviceSynchronize();
-
-	int out;
-	cudaMemcpy(&out, scan_output_circle_list + (num_input_circles - 1), sizeof(int), cudaMemcpyDeviceToHost);
-
-	getpositions<<<numBlocksNeeded, THREADS_PER_BLOCK>>>(output_circle_list, scan_output_circle_list, rounded_num_circles);
-	cudaDeviceSynchronize();
-
-	writeindices<<<numBlocksNeeded, THREADS_PER_BLOCK>>>(output_circle_list, device_output_circles_list, rounded_num_circles);
-	cudaDeviceSynchronize();
-}
-
-//for each circle, build the arrays of circles (in order) that contribute to that circle
-void getCirclesInTilePixels(int **device_output_circles_list, int *num_circles_in_tile,
-	int topLeftX, int topLeftY, int bottomRightX, int bottomRightY) {
-    //cuda malloc 3D tensor, so that data is contiguous in memory for each pixel
-
-    //for each circle in the list, generate the indices of the tensor to write 1s to and write 1s
-
-    //then for each pixel, do an exclusive scan, call getpositions, write indices
-
-}
 
 //then write a cuda function that for a given pixel and its list of circles, render the pixel
 
-
-
-__global__ void student_kernelRenderCircles() {
-
-	int index = blockIdx.x * blockDim.x + threadIdx.x;
-
-#if 0
-	serial: for tile in tiles:
-		list circles = circle[num_circles];
-
-		parallel: foreach circle in circles:
-			if tile contains circle[i], set cirlces[i] = 1
-		reduce circles list -> circles_in_tile
-
-		parallel: foreach pixel in tile
-			list pixel_circles = circle[circles_in_tile]
-			parallel: foreach circle in circles:
-				if circle covers pixel, set pixel_circles[index in reduced list] to 1
-#endif
-}
 
 ////////////////////////////////////////////////////////////////////////////////////////
 
@@ -748,6 +922,28 @@ CudaRenderer::advanceAnimation() {
 
 void
 CudaRenderer::render() {
+
+	int num_circles = cuConstRendererParams.numCircles;
+
+    short image_width = cuConstRendererParams.imageWidth;
+	short image_height = cuConstRendererParams.imageHeight;
+
+	int tile_width = ((int)(image_width / (sqrt(sqrt(num_circles)) * 32))) * 32;
+	int tile_height = ((int)(image_height / (sqrt(sqrt(num_circles)) * 32))) * 32;
+
+	for (int x = 0; x < image_width; x += tile_width) {
+		for (int y = 0; y < image_height; y += tile_height) {
+
+			// Get list of circles in this tile
+			int *device_tile_circles_list;
+			int num_circles_in_tile;
+			getCirclesInTile(num_circles, &device_tile_circles_list, &num_circles_in_tile, 
+				x, y, x + tile_width, y + tile_height);
+
+			getCirclesInTilePixels(device_tile_circles_list, num_circles_in_tile,
+				x, y, x + tile_height, y + tile_height);
+
+
 
     // 256 threads per block is a healthy number
     dim3 blockDim(256, 1);
