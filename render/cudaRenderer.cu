@@ -504,7 +504,7 @@ tensor_scan_downsweep(int *device_pixel_circles_mask, int rounded_num_circles,
 }
 
 
-
+//FLAG - for timing this takes the longest (as well as get positions + write indices)
 void tensor_exclusive_scan(
 		int* input_device_3d_tensor,
 		int* device_3d_tensor,
@@ -542,6 +542,25 @@ void tensor_exclusive_scan(
 		destinationStepSize = sourceStepSize;
 	}
 }
+
+
+//updated to support using 1D exclusive scan for the 3D tensor
+//adapted for the tensor
+__global__ void
+adapted_tensor_getpositions(int *mask_tensor, int *scanned_tensor, int rounded_num_circles_in_tile, int num_pixels)
+{ 
+	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (t_idx >= rounded_num_circles_in_tile * num_pixels - 1) { return; }
+
+    int pixel_idx = t_idx / rounded_num_circles_in_tile;
+    int circle_idx = t_idx % rounded_num_circles_in_tile;
+
+    int pixel_offset = rounded_num_circles_in_tile * pixel_idx;
+
+	
+	mask_tensor[pixel_offset + circle_idx] *= (scanned_tensor[pixel_offset + circle_idx + 1] - scanned_tensor[pixel_offset]);
+}
+
 
 
 __global__ void circlesTileMask(
@@ -664,6 +683,17 @@ __global__ void copy_count(
 	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles_in_tile + num_circles_in_tile]; //access last value to get total count
 }
 
+__global__ void adapted_copy_count(
+		int *count_circles_on_pixel, int* device_scanned_tensor, int num_pixels, 
+		int num_circles_in_tile, int rounded_num_circles_in_tile) {
+
+	int idx = blockDim.x * blockIdx.x + threadIdx.x;
+	if (idx >= num_pixels) {
+		return;
+	}
+	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles_in_tile + num_circles_in_tile] - device_scanned_tensor[idx * rounded_num_circles_in_tile]; //access last value to get total count
+}
+
 
 //for each pixel, build the arrays of circles (in order) that contribute to that pixel
 //device_output_circles_list is the list of circles that overlap our tile
@@ -715,12 +745,13 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 
     start = std::chrono::high_resolution_clock::now();
 	// Convert array of 1s and 0s to a list of indices into the global circle array.
-	tensor_exclusive_scan(device_pixels_per_circle_tensor, 
-		device_scanned_tensor, //output of exclusive scam
-		tensor_count / rounded_num_circles_in_tile, 
-		rounded_num_circles_in_tile, 
-		threads_per_block
-	);
+	// tensor_exclusive_scan(device_pixels_per_circle_tensor, 
+	// 	device_scanned_tensor, //output of exclusive scam
+	// 	tensor_count / rounded_num_circles_in_tile, 
+	// 	rounded_num_circles_in_tile, 
+	// 	threads_per_block
+	// );
+    exclusive_scan(device_pixels_per_circle_tensor, rounded_num_circles_in_tile, device_scanned_tensor, threads_per_block)
     stop = std::chrono::high_resolution_clock::now();
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
 	std::cout << "exclusive scan tensor : " << duration.count() << " ms\n";
@@ -729,7 +760,7 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 
     start = std::chrono::high_resolution_clock::now();
 	//now we do get positions and 
-	copy_count<<<num_blocks_for_pixels, threads_per_block>>>(
+	adapted_copy_count<<<num_blocks_for_pixels, threads_per_block>>>(
 		count_circles_on_pixel, 
 		device_scanned_tensor, 
 		num_pixels, 
@@ -745,7 +776,7 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 	int num_blocks_everything = (rounded_num_circles_in_tile * num_pixels + threads_per_block - 1) / threads_per_block;
 
     start = std::chrono::high_resolution_clock::now();	
-	tensor_getpositions<<<num_blocks_everything, threads_per_block>>>(
+	adapted_tensor_getpositions<<<num_blocks_everything, threads_per_block>>>(
 		device_pixels_per_circle_tensor, device_scanned_tensor, rounded_num_circles_in_tile, num_pixels);		
 	
 	cudaDeviceSynchronize();
