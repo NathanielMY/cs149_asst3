@@ -1093,7 +1093,7 @@ CudaRenderer::render() {
 	cudaMemcpy(&params, &cuConstRendererParams, sizeof(struct GlobalConstants), 
 		cudaMemcpyDeviceToHost);
 
-    bool snow = (params.sceneName == SNOWFLAKES || params.sceneName == SNOWFLAKES_SINGLE_FRAME);
+    bool snow = (sceneName == SNOWFLAKES || sceneName == SNOWFLAKES_SINGLE_FRAME);
 
 	int num_circles = numCircles;
 
