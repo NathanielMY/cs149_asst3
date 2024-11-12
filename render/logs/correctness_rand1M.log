@@ -12,7 +12,6 @@ Device 0: NVIDIA T4G
 
 Running benchmark, 1 frames, beginning at frame 0 ...
 Dumping frames to logs/output_xxx.ppm
-!!!!asdfasdf!!!1048576
 Copying image data from device
 Wrote image file logs/output_0000.ppm
 Copying image data from device

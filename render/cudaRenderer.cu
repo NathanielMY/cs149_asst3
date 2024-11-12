@@ -625,7 +625,7 @@ populateTileCirclesTensor(
 	int tileWidth = topRightX - bottomLeftX;
 	int tileHeight = topRightY - bottomLeftY;
 
-	if (idx > tileWidth * tileHeight * num_circles_in_tile) { return; }
+	if (idx >= tileWidth * tileHeight * num_circles_in_tile) { return; }
 
 	int circleIdx = idx % num_circles_in_tile;
 	int pixelIdx = idx / num_circles_in_tile;
@@ -657,7 +657,7 @@ __global__ void copy_count(
 		int num_circles_in_tile, int rounded_num_circles_in_tile) {
 
 	int idx = blockDim.x * blockIdx.x + threadIdx.x;
-	if (idx > num_pixels) {
+	if (idx >= num_pixels) {
 		return;
 	}
 	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles_in_tile + num_circles_in_tile]; //access last value to get total count
@@ -689,7 +689,7 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 	//cudaMemset(device_scanned_tensor, 0, tensor_size);
   
  	int threads_per_block = 512;
-    int thread_count = tensor_count * num_circles_in_tile / rounded_num_circles_in_tile;
+    int thread_count = num_pixels * num_circles_in_tile;
 	int num_blocks_needed = (thread_count + threads_per_block - 1) / threads_per_block;
 
     populateTileCirclesTensor<<<num_blocks_needed, threads_per_block>>>(
@@ -703,7 +703,7 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 		topRightY
 	);
 
-#if 1
+#if 0
 
 	int tile_width = (topRightX - bottomLeftX);
 	int tile_height = (topRightY - bottomLeftY);
@@ -1284,13 +1284,14 @@ CudaRenderer::render() {
 	short image_width = image->width;
 	short image_height = image->height;
 
+
 	int tile_width = ((int)(image_width / (sqrt(sqrt(num_circles)) * 32))) * 32;
 	int tile_height = ((int)(image_height / (sqrt(sqrt(num_circles)) * 32))) * 32;
 
 	// tile_width = image_width / 8;
 	// tile_height = image_height / 4;
-	tile_width = image_width;
-	tile_height = image_height;
+	tile_width = image_width / 8;
+	tile_height = image_height / 4;
 
 	// std::cout << image_width << ", " << image_height << std::endl;
 
@@ -1304,8 +1305,8 @@ CudaRenderer::render() {
 			getCirclesInTile(num_circles, &device_tile_circles_list, &num_circles_in_tile, 
 				x, y, x + cur_tile_width, y + cur_tile_height);
 			int rounded_num_circles_in_tile = nextPow2(num_circles_in_tile + 1);
-			std::cout << "!!!!asdfasdf!!!";
-			std::cout << rounded_num_circles_in_tile << std::endl;
+			// std::cout << "!!!!asdfasdf!!!";
+			//std::cout << rounded_num_circles_in_tile << std::endl;
 
 			// std::cout << "!!!!!!!!"<<std::endl;
 			// std::cout << num_circles_in_tile << std::endl;
