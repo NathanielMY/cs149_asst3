@@ -598,7 +598,7 @@ void getCirclesInTiles(
 		rounded_num_input_circles);
 	
 
-
+    int num_blocks = (rounded_num_input_circles * num_tiles + threads_per_block - 1) / threads_per_block;
 	adapted_tensor_getpositions<<<num_blocks, threads_per_block>>>(
 		device_output_circle_list, scan_output_circle_list, rounded_num_input_circles, num_tiles);
 	cudaDeviceSynchronize();
