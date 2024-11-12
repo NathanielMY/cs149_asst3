@@ -679,9 +679,14 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 	int tensor_count = rounded_num_circles_in_tile * num_pixels;
 	unsigned long tensor_size = sizeof(int) * tensor_count;
 
+    auto start = std::chrono::high_resolution_clock::now();
 	cudaMalloc((void **)&device_pixels_per_circle_tensor, tensor_size);
 	cudaMalloc((void **)device_scanned_tensor_ptr, tensor_size);
 	cudaMalloc((void **)count_circles_on_pixel_ptr, sizeof(int) * num_pixels);
+    auto stop = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+	std::cout << "Memory allocation: " << duration.count() << " ms\n";
+
 
 	int *device_scanned_tensor = *device_scanned_tensor_ptr;
 	int *count_circles_on_pixel = *count_circles_on_pixel_ptr;
@@ -693,6 +698,7 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
     int thread_count = num_pixels * num_circles_in_tile;
 	int num_blocks_needed = (thread_count + threads_per_block - 1) / threads_per_block;
 
+    start = std::chrono::high_resolution_clock::now();
     populateTileCirclesTensor<<<num_blocks_needed, threads_per_block>>>(
 		device_pixels_per_circle_tensor, //the tensor of 1s and 0s
 		device_output_circles_list,
@@ -703,7 +709,11 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 		topRightX,
 		topRightY
 	);
+    stop = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+	std::cout << "populate tensor : " << duration.count() << " ms\n";
 
+    start = std::chrono::high_resolution_clock::now();
 	// Convert array of 1s and 0s to a list of indices into the global circle array.
 	tensor_exclusive_scan(device_pixels_per_circle_tensor, 
 		device_scanned_tensor, //output of exclusive scam
@@ -711,9 +721,13 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 		rounded_num_circles_in_tile, 
 		threads_per_block
 	);
+    stop = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+	std::cout << "exclusive scan tensor : " << duration.count() << " ms\n";
 
 	int num_blocks_for_pixels = (num_pixels + threads_per_block - 1) / threads_per_block;
 
+    start = std::chrono::high_resolution_clock::now();
 	//now we do get positions and 
 	copy_count<<<num_blocks_for_pixels, threads_per_block>>>(
 		count_circles_on_pixel, 
@@ -723,10 +737,14 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 		rounded_num_circles_in_tile);
 	
 	cudaDeviceSynchronize();	
+    stop = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+	std::cout << "copy count tensor : " << duration.count() << " ms\n";
 
 
 	int num_blocks_everything = (rounded_num_circles_in_tile * num_pixels + threads_per_block - 1) / threads_per_block;
-		
+
+    start = std::chrono::high_resolution_clock::now();	
 	tensor_getpositions<<<num_blocks_everything, threads_per_block>>>(
 		device_pixels_per_circle_tensor, device_scanned_tensor, rounded_num_circles_in_tile, num_pixels);		
 	
@@ -737,6 +755,9 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 	tensor_writeindices<<<num_blocks_everything, threads_per_block>>>(
 		device_pixels_per_circle_tensor, device_scanned_tensor, rounded_num_circles_in_tile, num_pixels);		
 	cudaDeviceSynchronize();
+    stop = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+	std::cout << "get positions and write indices  tensor : " << duration.count() << " ms\n";
 
 
 	cudaFree(device_pixels_per_circle_tensor);
