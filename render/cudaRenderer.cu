@@ -751,7 +751,7 @@ void getCirclesInTilePixels(int *device_output_circles_list, int num_circles_in_
 	// 	rounded_num_circles_in_tile, 
 	// 	threads_per_block
 	// );
-    exclusive_scan(device_pixels_per_circle_tensor, rounded_num_circles_in_tile, device_scanned_tensor, threads_per_block)
+    exclusive_scan(device_pixels_per_circle_tensor, rounded_num_circles_in_tile, device_scanned_tensor, threads_per_block);
     stop = std::chrono::high_resolution_clock::now();
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
 	std::cout << "exclusive scan tensor : " << duration.count() << " ms\n";
