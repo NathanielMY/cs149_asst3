@@ -1008,6 +1008,21 @@ CudaRenderer::render() {
 
     int rounded_num_circles = nextPow2(num_circles + 1);
 
+    int numElements = rounded_num_circles * (image_width / tile_width) * (image_height / tile_height);
+    int *hostArray = new int[numElements];
+
+    // Copy the array from device to host
+    cudaMemcpy(hostArray, device_tile_circles_list, numElements * sizeof(int), cudaMemcpyDeviceToHost);
+
+    // Print the array contents
+    for (int i = 0; i < numElements; i++) {
+        std::cout << hostArray[i] << " ";
+    }
+    std::cout << std::endl;
+
+    // Free the host array
+    delete[] hostArray;
+
     int threads_per_block = 256;
     int num_blocks = (image_width * image_height + threads_per_block - 1) / threads_per_block;
     // Time shade_per_pixel kernel launch (if synchronous)
