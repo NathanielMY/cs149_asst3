@@ -538,37 +538,7 @@ __global__ void adapted_copy_count(
 	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles + rounded_num_circles] - device_scanned_tensor[idx * rounded_num_circles]; //access last value to get total count
 }
 
-__global__ void
-adapted_tensor_getpositions(int *mask_tensor, int *scanned_tensor, int rounded_num_circles_in_tile, int num_pixels)
-{ 
-	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
-	if (t_idx >= rounded_num_circles_in_tile * num_pixels - 1) { return; }
 
-    int pixel_idx = t_idx / rounded_num_circles_in_tile;
-    int circle_idx = t_idx % rounded_num_circles_in_tile;
-
-    int pixel_offset = rounded_num_circles_in_tile * pixel_idx;
-
-	
-	mask_tensor[pixel_offset + circle_idx] *= (scanned_tensor[pixel_offset + circle_idx + 1] - scanned_tensor[pixel_offset]);
-}
-
-__global__ void
-tensor_writeindices(int *mask_tensor, int *scanned_tensor, int rounded_num_circles_in_tile, int num_pixels)
-{
-	unsigned long t_idx = threadIdx.x + blockIdx.x * blockDim.x;
-	if (t_idx >= rounded_num_circles_in_tile * num_pixels - 1) { return; }
-
-    int pixel_idx = t_idx / rounded_num_circles_in_tile;
-    int circle_idx = t_idx % rounded_num_circles_in_tile;
-
-    int pixel_offset = rounded_num_circles_in_tile * pixel_idx;
-	//int *pixel_scanned_tensor = scanned_tensor + rounded_num_circles_in_tile * pixel_idx;
-
-	if (mask_tensor[pixel_offset + circle_idx] != 0) {
-		scanned_tensor[pixel_offset + mask_tensor[pixel_offset + circle_idx]-1] = circle_idx;
-	}
-}
 
 //TO DO - replace this code so that
 void getCirclesInTiles(
@@ -604,8 +574,8 @@ void getCirclesInTiles(
 
     //FLAG TO DO - use the adapted copy code and adapted get positions code
 
-    int num_blocks_for_pixels = (num_pixels + threads_per_block - 1) / threads_per_block;
-    adapted_copy_count<<<num_blocks_for_pixels, threads_per_block>>>(
+    int num_blocks_for_tiles = (num_tiles + threads_per_block - 1) / threads_per_block;
+    adapted_copy_count<<<num_blocks_for_tiles, threads_per_block>>>(
 		num_circles_in_tile_list, 
 		scan_output_circle_list, 
 		num_pixels, 
@@ -694,55 +664,9 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
     // END SHOULD-BE-ATOMIC REGION
 }
 
-#if 1
-//do shade pixel code per pixel
-//grab the idx of the pixel, grab the image ptr, have a localacummulator for the float 4 and only do one write
-//do mod stuff (as in the code above) + add ofsets to get  pixelX and pixelY 
-//pixel
-//imagePtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * imageWidth + pixelX)]);
 
 __global__ void
-shade_per_pixel(int rounded_num_circles_in_tile, int *circles_on_tile, int *circles_on_pixel_tensor, 
-	int *num_circles_on_pixel, int bottomLeftX, int bottomLeftY, int topRightX, int topRightY) {
-
-	//first, get index of pixel and check in bounds
-	int idx = blockIdx.x * blockDim.x + threadIdx.x;
-
-	int num_pixels = (topRightX - bottomLeftX) * (topRightY - bottomLeftY);
-
-	if (idx >= num_pixels) { return; }
-
-	//get location of pixel 
-	float invWidth = 1.f / cuConstRendererParams.imageWidth;
-	float invHeight = 1.f / cuConstRendererParams.imageHeight;
-
-	int pixelX = bottomLeftX + idx % (topRightX - bottomLeftX);
-	int pixelY = bottomLeftY + idx / (topRightX - bottomLeftX);
-	float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
-                                                 invHeight * (static_cast<float>(pixelY) + 0.5f));
-
-	float4 *imagePtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * cuConstRendererParams.imageWidth + pixelX)]);
-	
-	float4 localAccumulator = *imagePtr;
-
-	int num_circles = num_circles_on_pixel[idx];
-
-	for (int x = 0; x < num_circles; ++x) {
-		int tile_circle_index = circles_on_pixel_tensor[idx * (rounded_num_circles_in_tile) + x];
-		int global_circle_index = circles_on_tile[tile_circle_index];
-
-		float3 p = *(float3*)(&cuConstRendererParams.position[global_circle_index * 3]);
-
-		shadePixel(global_circle_index, pixelCenterNorm, p, &localAccumulator);
-
-	}
-
-	*imagePtr = localAccumulator; 
-}
-#else
-
-__global__ void
-shade_per_pixel(int rounded_num_circles, int *circles_on_tile, int *circles_on_pixel_tensor,
+shade_per_pixel(int rounded_num_circles, int *circles_on_tile, 
                 int *num_circles_in_tile_list, int tileWidth, int tileHeight, int imageWidth, int imageHeight) {
 
     //FLAG TODO - fetch tile index then do
@@ -777,8 +701,7 @@ shade_per_pixel(int rounded_num_circles, int *circles_on_tile, int *circles_on_p
 
     // Iterate over circles contributing to this pixel
     for (int x = 0; x < num_circles; ++x) {
-        int tile_circle_index = circles_on_pixel_tensor[tile_idx * rounded_num_circles + x];
-        int global_circle_index = circles_on_tile[tile_circle_index];
+        int global_circle_index = circles_on_tile[tile_idx * rounded_num_circles + x];
 
         // Get circle position
         float3 p = *(float3*)(&cuConstRendererParams.position[global_circle_index * 3]);
@@ -790,7 +713,6 @@ shade_per_pixel(int rounded_num_circles, int *circles_on_tile, int *circles_on_p
     // Update pixel color in image
     *imagePtr = localAccumulator;
 }
-#endif
 
 
 
@@ -1077,7 +999,7 @@ CudaRenderer::render() {
 
     // Time getCirclesInTile
     auto start = std::chrono::high_resolution_clock::now();
-    getCirclesInTile(num_circles, &device_tile_circles_list, &num_circles_in_tile_list, 
+    getCirclesInTiles(num_circles, &device_tile_circles_list, &num_circles_in_tile_list, 
         tile_width, tile_height);
     auto stop = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
@@ -1092,7 +1014,7 @@ CudaRenderer::render() {
 
     shade_per_pixel<<<num_blocks, threads_per_block>>>(
         rounded_num_circles, device_tile_circles_list,
-        num_circles_in_tile_list, tile_width, tile_height, imageWidth, imageWidth
+        num_circles_in_tile_list, tile_width, tile_height, image_width, image_height
     );
 
     cudaDeviceSynchronize();
