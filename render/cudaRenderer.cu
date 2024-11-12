@@ -528,11 +528,11 @@ __global__ void circlesTileMask(
 }
 
 __global__ void adapted_copy_count(
-		int *count_circles_on_pixel, int* device_scanned_tensor, int num_pixels, 
+		int *count_circles_on_pixel, int* device_scanned_tensor, int num_tiles, 
 		int rounded_num_circles) {
 
 	int idx = blockDim.x * blockIdx.x + threadIdx.x;
-	if (idx >= num_pixels) {
+	if (idx >= num_tiles) {
 		return;
 	}
 	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles + rounded_num_circles] - device_scanned_tensor[idx * rounded_num_circles]; //access last value to get total count
@@ -578,16 +578,17 @@ void getCirclesInTiles(
     adapted_copy_count<<<num_blocks_for_tiles, threads_per_block>>>(
 		num_circles_in_tile_list, 
 		scan_output_circle_list, 
-		num_pixels, 
-		rounded_num_circles);
+		num_tiles, 
+		rounded_num_input_circles);
 	
 
+
 	adapted_tensor_getpositions<<<num_blocks, threads_per_block>>>(
-		device_output_circle_list, scan_output_circle_list, rounded_num_input_circles, num_pixels);
+		device_output_circle_list, scan_output_circle_list, rounded_num_input_circles, num_tiles);
 	cudaDeviceSynchronize();
 
 	tensor_writeindices<<<num_blocks, threads_per_block>>>(
-		device_output_circle_list, scan_output_circle_list, rounded_num_input_circles, num_pixels);
+		device_output_circle_list, scan_output_circle_list, rounded_num_input_circles, num_tiles);
 	cudaDeviceSynchronize();
 
 	*output_circle_list_ptr = scan_output_circle_list;
@@ -1000,7 +1001,7 @@ CudaRenderer::render() {
     // Time getCirclesInTile
     auto start = std::chrono::high_resolution_clock::now();
     getCirclesInTiles(num_circles, &device_tile_circles_list, &num_circles_in_tile_list, 
-        tile_width, tile_height);
+        tile_width, tile_height, image_width, image_height);
     auto stop = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
     std::cout << "getCirclesInTile: " << duration.count() << " ms\n";
