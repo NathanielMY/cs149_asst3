@@ -535,7 +535,7 @@ __global__ void adapted_copy_count(
 	if (idx >= num_tiles) {
 		return;
 	}
-	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles + rounded_num_circles - 1] - device_scanned_tensor[idx * rounded_num_circles - 1]; //access last value to get total count
+	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles + rounded_num_circles - 1] - device_scanned_tensor[idx * rounded_num_circles]; //access last value to get total count
 }
 
 
