@@ -585,7 +585,7 @@ void getCirclesInTiles(
 
     std::cout << "Number of non-zero elements: " << nonZeroCount << std::endl;
 
-    exclusive_scan(device_output_circle_list, rounded_num_input_circles, scan_output_circle_list, 256);
+    exclusive_scan(device_output_circle_list, rounded_num_input_circles * num_tiles, scan_output_circle_list, 256);
 	cudaDeviceSynchronize();
 
     //FLAG TO DO - use the adapted copy code and adapted get positions code
