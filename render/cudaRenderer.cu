@@ -1004,11 +1004,15 @@ CudaRenderer::render() {
 	short image_height = image->height;
 
 
-	int tile_width = ((int)(image_width / (sqrt(sqrt(num_circles)) * 32))) * 32;
-	int tile_height = ((int)(image_height / (sqrt(sqrt(num_circles)) * 32))) * 32;
+	//int tile_width = ((int)(image_width / (sqrt(sqrt(num_circles)) * 32))) * 32;
+	//int tile_height = ((int)(image_height / (sqrt(sqrt(num_circles)) * 32))) * 32;
+	int num_tiles = 16;
+	if (num_circles < 1000) {
+		num_tiles = 1;
+	}
 
-	tile_width = image_width / 8;
-	tile_height = image_height / 8;
+	int tile_width = image_width / num_tiles;
+	int tile_height = image_height / num_tiles;
 			
 
     int *device_tile_circles_list;
