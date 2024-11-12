@@ -583,7 +583,7 @@ void getCirclesInTiles(
 
     delete[] hostArray;
 
-    std::cout << "Number of non-zero elements: " << nonZeroCount << std::endl;
+    std::cout << "Number of non-zero elements in the 1's 0's mask tensor: " << nonZeroCount << std::endl;
 
     exclusive_scan(device_output_circle_list, rounded_num_input_circles * num_tiles, scan_output_circle_list, 256);
 	cudaDeviceSynchronize();
@@ -1030,12 +1030,15 @@ CudaRenderer::render() {
 
     // Copy the array from device to host
     cudaMemcpy(hostArray, device_tile_circles_list, numElements * sizeof(int), cudaMemcpyDeviceToHost);
+    
 
-    // Print the array contents
+    int nonZeroCount = 0;
     for (int i = 0; i < numElements; i++) {
-        std::cout << hostArray[i] << " ";
+        if (hostArray[i] != 0) {
+            nonZeroCount++;
+        }
     }
-    std::cout << std::endl;
+    std::cout << "Number of non-zero elements in the scanned tensor: " << nonZeroCount << std::endl;
 
     // Free the host array
     delete[] hostArray;
