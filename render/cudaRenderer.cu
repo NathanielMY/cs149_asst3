@@ -1007,8 +1007,8 @@ CudaRenderer::render() {
 	int tile_width = ((int)(image_width / (sqrt(sqrt(num_circles)) * 32))) * 32;
 	int tile_height = ((int)(image_height / (sqrt(sqrt(num_circles)) * 32))) * 32;
 
-	tile_width = image_width / 64;
-	tile_height = image_height / 64;
+	tile_width = image_width / 8;
+	tile_height = image_height / 8;
 			
 
     int *device_tile_circles_list;
