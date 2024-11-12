@@ -1355,7 +1355,7 @@ CudaRenderer::render() {
 			delete []check;
 #endif
 
-			int threads_per_block = 512;
+			int threads_per_block = 256;
 			int num_blocks = (cur_tile_width * cur_tile_height + threads_per_block - 1) / threads_per_block;
 
 			shade_per_pixel<<<num_blocks, threads_per_block>>>(
