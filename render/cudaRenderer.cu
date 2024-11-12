@@ -1006,6 +1006,8 @@ CudaRenderer::render() {
 		cudaMemcpyDeviceToHost);
 
 	int num_circles = numCircles;
+
+	std::cout << "number of circles is " << num_circles;
 	short image_width = image->width;
 	short image_height = image->height;
 
@@ -1013,9 +1015,12 @@ CudaRenderer::render() {
 	//int tile_width = ((int)(image_width / (sqrt(sqrt(num_circles)) * 32))) * 32;
 	//int tile_height = ((int)(image_height / (sqrt(sqrt(num_circles)) * 32))) * 32;
 	int num_tiles = 16;
-	if (num_circles < 1000) {
+	if (num_circles < 100) {
 		num_tiles = 1;
+	} else if ((1000 < num_circles) && (num_circles < 5000)) {
+		num_tiles = 8;
 	}
+
 
 	int tile_width = image_width / num_tiles;
 	int tile_height = image_height / num_tiles;

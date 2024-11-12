@@ -1,6 +1,6 @@
 Rendering to 1024x1024 image
-Loaded scene with 3 circles
-Loaded scene with 3 circles
+Loaded scene with 1217 circles
+Loaded scene with 1217 circles
 ---------------------------------------------------------
 Initializing CUDA for CudaRenderer
 Found 1 CUDA devices
@@ -12,16 +12,16 @@ Device 0: NVIDIA T4G
 
 Running benchmark, 1 frames, beginning at frame 0 ...
 Dumping frames to logs/output_xxx.ppm
-number of circles is 3getCirclesInTile: 0 ms
+number of circles is 1217getCirclesInTile: 0 ms
 shade_per_pixel kernel: 0 ms
 Copying image data from device
 Wrote image file logs/output_0000.ppm
 Copying image data from device
 ***************** Correctness check passed **************************
-Clear:    0.1517 ms
-Advance:  0.0021 ms
-Render:   0.3301 ms
-Total:    0.4839 ms
-File IO:  78.9837 ms
+Clear:    0.1383 ms
+Advance:  0.0022 ms
+Render:   0.5625 ms
+Total:    0.7029 ms
+File IO:  84.8226 ms
 
-Overall:  0.1021 sec (note units are seconds)
+Overall:  0.1129 sec (note units are seconds)

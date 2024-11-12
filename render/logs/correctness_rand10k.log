@@ -12,16 +12,16 @@ Device 0: NVIDIA T4G
 
 Running benchmark, 1 frames, beginning at frame 0 ...
 Dumping frames to logs/output_xxx.ppm
-getCirclesInTile: 1 ms
+number of circles is 10000getCirclesInTile: 1 ms
 shade_per_pixel kernel: 1 ms
 Copying image data from device
 Wrote image file logs/output_0000.ppm
 Copying image data from device
 ***************** Correctness check passed **************************
-Clear:    0.1480 ms
-Advance:  0.0021 ms
-Render:   3.3833 ms
-Total:    3.5334 ms
-File IO:  90.2732 ms
+Clear:    0.1514 ms
+Advance:  0.0020 ms
+Render:   3.4039 ms
+Total:    3.5574 ms
+File IO:  88.2468 ms
 
-Overall:  0.7168 sec (note units are seconds)
+Overall:  0.7125 sec (note units are seconds)
