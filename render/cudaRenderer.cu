@@ -524,7 +524,8 @@ __global__ void circlesTileMask(
 
 	bool x_overlaps = (bottomLeftX < circle_top_right_x + 1) && (topRightX + 1 > circle_bottom_left_x);
 	bool y_overlaps = (bottomLeftY < circle_top_right_y + 1) && (circle_bottom_left_y < topRightY + 1);
-	device_output_circles_list[idx] = (x_overlaps && y_overlaps) ? 1 : 0; //device_output_circles_list has a list of circles per each pixel
+    //because we have rounded_num_circles per tile
+	device_output_circles_list[tile_idx * rounded_num_circles + circle_idx] = (x_overlaps && y_overlaps) ? 1 : 0; //device_output_circles_list has a list of circles per each pixel
 }
 
 __global__ void adapted_copy_count(
