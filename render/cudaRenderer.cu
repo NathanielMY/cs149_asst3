@@ -991,6 +991,12 @@ CudaRenderer::advanceAnimation() {
     cudaDeviceSynchronize();
 }
 
+__global__ void initialize_with_index(int *arr, int N) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx < N) {
+        arr[idx] = idx;
+    }
+}
 
 void
 CudaRenderer::render() {
@@ -1020,8 +1026,23 @@ CudaRenderer::render() {
 
     // Time getCirclesInTile
     auto start = std::chrono::high_resolution_clock::now();
-    getCirclesInTiles(num_circles, &device_tile_circles_list, &num_circles_in_tile_list, 
-        tile_width, tile_height, image_width, image_height);
+
+    if (num_tiles == 1) {
+        cudaMalloc(&device_tile_circles_list, sizeof(int) * num_circles);
+        cudaMalloc(&num_circles_in_tile_list, sizeof(int));
+
+        //set device_tile_circles_list so that device_tile_circles_list[idx] = idx
+        int blocks = (num_circles + threads_per_block - 1) / threads_per_block;
+        initialize_with_index<<<blocks, threads_per_block>>>(device_tile_circles_list, num_circles);
+        cudaDeviceSynchronize();
+
+        cudaMemcpy(num_circles_in_tile_list, &num_circles, sizeof(int), cudaMemcpyHostToDevice);
+    } else {
+        getCirclesInTiles(num_circles, &device_tile_circles_list, &num_circles_in_tile_list, 
+            tile_width, tile_height, image_width, image_height);
+    }
+
+    
     auto stop = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
     std::cout << "getCirclesInTile: " << duration.count() << " ms\n";
