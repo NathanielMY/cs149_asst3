@@ -570,6 +570,21 @@ void getCirclesInTiles(
 
     cudaDeviceSynchronize();
 
+    //FLAG - count number of nonzero elements after circlesTileMask
+    int *hostArray = new int[rounded_num_input_circles * num_tiles];
+    cudaMemcpy(hostArray, device_output_circle_list, numElements * sizeof(int), cudaMemcpyDeviceToHost);
+
+    int nonZeroCount = 0;
+    for (int i = 0; i < numElements; i++) {
+        if (hostArray[i] != 0) {
+            nonZeroCount++;
+        }
+    }
+
+    delete[] hostArray;
+
+    std::cout << "Number of non-zero elements: " << nonZeroCount << std::endl;
+
     exclusive_scan(device_output_circle_list, rounded_num_input_circles, scan_output_circle_list, 256);
 	cudaDeviceSynchronize();
 
