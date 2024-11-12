@@ -644,24 +644,12 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
     // would be wise to perform this logic outside of the loop next in
     // kernelRenderCircles.  (If feeling good about yourself, you
     // could use some specialized template magic).
-    if (cuConstRendererParams.sceneName == SNOWFLAKES || cuConstRendererParams.sceneName == SNOWFLAKES_SINGLE_FRAME) {
-
-        const float kCircleMaxAlpha = .5f;
-        const float falloffScale = 4.f;
-
-        float normPixelDist = sqrt(pixelDist) / rad;
-        rgb = lookupColor(normPixelDist);
-
-        float maxAlpha = .6f + .4f * (1.f-p.z);
-        maxAlpha = kCircleMaxAlpha * fmaxf(fminf(maxAlpha, 1.f), 0.f); // kCircleMaxAlpha * clamped value
-        alpha = maxAlpha * exp(-1.f * falloffScale * normPixelDist * normPixelDist);
-
-    } else {
-        // simple: each circle has an assigned color
-        int index3 = 3 * circleIndex;
-        rgb = *(float3*)&(cuConstRendererParams.color[index3]);
-        alpha = .5f;
-    }
+    
+    // simple: each circle has an assigned color
+    int index3 = 3 * circleIndex;
+    rgb = *(float3*)&(cuConstRendererParams.color[index3]);
+    alpha = .5f;
+    
 
     float oneMinusAlpha = 1.f - alpha;
 
@@ -732,6 +720,106 @@ shade_per_pixel(int rounded_num_circles, int *circles_on_tile,
 }
 
 
+
+// shadePixel -- (CUDA device code)
+//
+// given a pixel and a circle, determines the contribution to the
+// pixel from the circle.  Update of the image is done in this
+// function.  Called by kernelRenderCircles()
+__device__ __inline__ void
+snowShadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
+
+    float diffX = p.x - pixelCenter.x;
+    float diffY = p.y - pixelCenter.y;
+    float pixelDist = diffX * diffX + diffY * diffY;
+
+    float rad = cuConstRendererParams.radius[circleIndex];;
+    float maxDist = rad * rad;
+
+    // circle does not contribute to the image
+    if (pixelDist > maxDist)
+        return;
+
+    float3 rgb;
+    float alpha;
+
+    const float kCircleMaxAlpha = .5f;
+    const float falloffScale = 4.f;
+
+    float normPixelDist = sqrt(pixelDist) / rad;
+    rgb = lookupColor(normPixelDist);
+
+    float maxAlpha = .6f + .4f * (1.f-p.z);
+    maxAlpha = kCircleMaxAlpha * fmaxf(fminf(maxAlpha, 1.f), 0.f); // kCircleMaxAlpha * clamped value
+    alpha = maxAlpha * exp(-1.f * falloffScale * normPixelDist * normPixelDist);
+
+    float oneMinusAlpha = 1.f - alpha;
+
+    // BEGIN SHOULD-BE-ATOMIC REGION
+    // global memory read
+
+    float4 existingColor = *imagePtr;
+    float4 newColor;
+    newColor.x = alpha * rgb.x + oneMinusAlpha * existingColor.x;
+    newColor.y = alpha * rgb.y + oneMinusAlpha * existingColor.y;
+    newColor.z = alpha * rgb.z + oneMinusAlpha * existingColor.z;
+    newColor.w = alpha + existingColor.w;
+
+    // global memory write
+    *imagePtr = newColor;
+
+    // END SHOULD-BE-ATOMIC REGION
+}
+
+
+__global__ void
+snow_shade_per_pixel(int rounded_num_circles, int *circles_on_tile, 
+                int *num_circles_in_tile_list, int tileWidth, int tileHeight, int imageWidth, int imageHeight) {
+
+    //FLAG TODO - fetch tile index then do
+
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int num_pixels = imageWidth * imageHeight;
+
+    if (idx >= num_pixels) return;
+
+    // Calculate pixel coordinates
+    int pixelX =(idx % (imageWidth));
+    int pixelY = (idx / (imageWidth));
+
+    // Normalized center of the pixel
+    float invWidth = 1.f / cuConstRendererParams.imageWidth;
+    float invHeight = 1.f / cuConstRendererParams.imageHeight;
+    float2 pixelCenterNorm = make_float2(
+        invWidth * (static_cast<float>(pixelX) + 0.5f),
+        invHeight * (static_cast<float>(pixelY) + 0.5f)
+    );
+
+    //compute the tile location its in
+    int x_tile_pos = pixelX / tileWidth;
+    int y_tile_pos = pixelY / tileHeight;
+    int tile_idx = x_tile_pos + y_tile_pos * (imageWidth / tileWidth);
+
+    // Pointer to the pixel in the image
+    float4* imagePtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * cuConstRendererParams.imageWidth + pixelX)]);
+    float4 localAccumulator = *imagePtr;  // Start with the current color in the image
+
+    int num_circles = num_circles_in_tile_list[tile_idx];
+
+    // Iterate over circles contributing to this pixel
+    for (int x = 0; x < num_circles; ++x) {
+        int global_circle_index = circles_on_tile[tile_idx * rounded_num_circles + x];
+
+        // Get circle position
+        float3 p = *(float3*)(&cuConstRendererParams.position[global_circle_index * 3]);
+
+        // Call shading function to accumulate circle contribution
+        snowShadePixel(global_circle_index, pixelCenterNorm, p, &localAccumulator);
+    }
+
+    // Update pixel color in image
+    *imagePtr = localAccumulator;
+}
 
 // kernelRenderCircles -- (CUDA device code)
 //
@@ -1005,6 +1093,8 @@ CudaRenderer::render() {
 	cudaMemcpy(&params, &cuConstRendererParams, sizeof(struct GlobalConstants), 
 		cudaMemcpyDeviceToHost);
 
+    bool snow = (params.sceneName == SNOWFLAKES || params.sceneName == SNOWFLAKES_SINGLE_FRAME);
+
 	int num_circles = numCircles;
 
 	std::cout << "number of circles is " << num_circles;
@@ -1079,10 +1169,19 @@ CudaRenderer::render() {
     // Time shade_per_pixel kernel launch (if synchronous)
     start = std::chrono::high_resolution_clock::now();
 
-    shade_per_pixel<<<num_blocks, threads_per_block>>>(
-        rounded_num_circles, device_tile_circles_list,
-        num_circles_in_tile_list, tile_width, tile_height, image_width, image_height
-    );
+    if (snow) {
+        snow_shade_per_pixel<<<num_blocks, threads_per_block>>>(
+            rounded_num_circles, device_tile_circles_list,
+            num_circles_in_tile_list, tile_width, tile_height, image_width, image_height
+        );
+    } else {
+        shade_per_pixel<<<num_blocks, threads_per_block>>>(
+            rounded_num_circles, device_tile_circles_list,
+            num_circles_in_tile_list, tile_width, tile_height, image_width, image_height
+        );
+    }
+
+    
 
     cudaDeviceSynchronize();
 
