@@ -1288,10 +1288,10 @@ CudaRenderer::render() {
 	int tile_width = ((int)(image_width / (sqrt(sqrt(num_circles)) * 32))) * 32;
 	int tile_height = ((int)(image_height / (sqrt(sqrt(num_circles)) * 32))) * 32;
 
-	// tile_width = image_width / 8;
-	// tile_height = image_height / 4;
-	tile_width = image_width / 8;
-	tile_height = image_height / 4;
+	tile_width = image_width / 16;
+	tile_height = image_height / 8;
+	//tile_width = image_width / 8;
+	//tile_height = image_height / 4;
 
 	// std::cout << image_width << ", " << image_height << std::endl;
 
