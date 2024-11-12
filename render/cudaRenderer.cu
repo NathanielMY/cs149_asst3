@@ -1032,6 +1032,7 @@ CudaRenderer::render() {
         cudaMalloc(&num_circles_in_tile_list, sizeof(int));
 
         //set device_tile_circles_list so that device_tile_circles_list[idx] = idx
+        int threads_per_block = 256;
         int blocks = (num_circles + threads_per_block - 1) / threads_per_block;
         initialize_with_index<<<blocks, threads_per_block>>>(device_tile_circles_list, num_circles);
         cudaDeviceSynchronize();
