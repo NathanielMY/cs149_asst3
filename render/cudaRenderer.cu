@@ -535,7 +535,7 @@ __global__ void adapted_copy_count(
 	if (idx >= num_tiles) {
 		return;
 	}
-	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles + rounded_num_circles] - device_scanned_tensor[idx * rounded_num_circles]; //access last value to get total count
+	count_circles_on_pixel[idx] = device_scanned_tensor[idx * rounded_num_circles + rounded_num_circles - 1] - device_scanned_tensor[idx * rounded_num_circles - 1]; //access last value to get total count
 }
 
 
@@ -1008,6 +1008,7 @@ CudaRenderer::render() {
 
     int rounded_num_circles = nextPow2(num_circles + 1);
 
+    //FLAG - debugging code
     int numElements = rounded_num_circles * (image_width / tile_width) * (image_height / tile_height);
     int *hostArray = new int[numElements];
 
