@@ -572,10 +572,10 @@ void getCirclesInTiles(
 
     //FLAG - count number of nonzero elements after circlesTileMask
     int *hostArray = new int[rounded_num_input_circles * num_tiles];
-    cudaMemcpy(hostArray, device_output_circle_list, numElements * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(hostArray, device_output_circle_list, rounded_num_input_circles * num_tiles * sizeof(int), cudaMemcpyDeviceToHost);
 
     int nonZeroCount = 0;
-    for (int i = 0; i < numElements; i++) {
+    for (int i = 0; i < rounded_num_input_circles * num_tiles; i++) {
         if (hostArray[i] != 0) {
             nonZeroCount++;
         }
