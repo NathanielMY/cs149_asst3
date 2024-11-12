@@ -8,7 +8,7 @@
 #include <cuda_runtime.h>
 #include <driver_functions.h>
 #include <thrust/device_ptr.h>
-#include <thrust/exclusive_scan.h>
+#include <thrust/scan.h>
 #include <thrust/copy.h>
 
 #include "cudaRenderer.h"
@@ -429,43 +429,43 @@ scan_downsweep(int* buffer, int N, int sourceStepSize, int destinationStepSize)
 // places it in result
 void exclusive_scan(int* input, int N, int* result, int THREADS_PER_BLOCK)
 {
-	cudaMemcpy(result, input, N*sizeof(int), cudaMemcpyDeviceToDevice);
-	N = nextPow2(N);
+	// cudaMemcpy(result, input, N*sizeof(int), cudaMemcpyDeviceToDevice);
+	// N = nextPow2(N);
 
-	// upsweep
-	int destinationStepSize = 1;
-	for (int sourceStepSize= 1; sourceStepSize < N; sourceStepSize = destinationStepSize) {
-		destinationStepSize *= 2;
+	// // upsweep
+	// int destinationStepSize = 1;
+	// for (int sourceStepSize= 1; sourceStepSize < N; sourceStepSize = destinationStepSize) {
+	// 	destinationStepSize *= 2;
 	
-		int numThreadsNeeded = N / destinationStepSize;
-		int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-		scan_upsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
-			result, N, sourceStepSize, destinationStepSize);
-		cudaDeviceSynchronize();
-	}
+	// 	int numThreadsNeeded = N / destinationStepSize;
+	// 	int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+	// 	scan_upsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
+	// 		result, N, sourceStepSize, destinationStepSize);
+	// 	cudaDeviceSynchronize();
+	// }
 
-	// downsweep
-	destinationStepSize = N;
-	for (int sourceStepSize = N/2; sourceStepSize >= 1; sourceStepSize /= 2) {
+	// // downsweep
+	// destinationStepSize = N;
+	// for (int sourceStepSize = N/2; sourceStepSize >= 1; sourceStepSize /= 2) {
 		
-		int numThreadsNeeded = N / destinationStepSize;
-		int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;	
-		scan_downsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
-			result, N, sourceStepSize, destinationStepSize);
-		cudaDeviceSynchronize();
+	// 	int numThreadsNeeded = N / destinationStepSize;
+	// 	int numBlocks = (numThreadsNeeded + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;	
+	// 	scan_downsweep<<<numBlocks, THREADS_PER_BLOCK>>>(
+	// 		result, N, sourceStepSize, destinationStepSize);
+	// 	cudaDeviceSynchronize();
 
-		destinationStepSize = sourceStepSize;
-	}
+	// 	destinationStepSize = sourceStepSize;
+	// }
 
-    // cudaMemcpy(result, input, N * sizeof(int), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(result, input, N * sizeof(int), cudaMemcpyDeviceToDevice);
 
-    // // Wrap raw pointers with Thrust device pointers
-    // thrust::device_ptr<int> input_ptr(result);
-    // thrust::device_ptr<int> result_ptr(result);
+    // Wrap raw pointers with Thrust device pointers
+    thrust::device_ptr<int> input_ptr(result);
+    thrust::device_ptr<int> result_ptr(result);
 
-    // // Perform exclusive scan using Thrust (in-place on `result`)
-    // thrust::exclusive_scan(input_ptr, input_ptr + N, result_ptr);
-    // cudaDeviceSynchronize();
+    // Perform exclusive scan using Thrust (in-place on `result`)
+    thrust::exclusive_scan(input_ptr, input_ptr + N, result_ptr);
+    cudaDeviceSynchronize();
 
 }
 
