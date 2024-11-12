@@ -570,20 +570,20 @@ void getCirclesInTiles(
 
     cudaDeviceSynchronize();
 
-    //FLAG - count number of nonzero elements after circlesTileMask
-    int *hostArray = new int[rounded_num_input_circles * num_tiles];
-    cudaMemcpy(hostArray, device_output_circle_list, rounded_num_input_circles * num_tiles * sizeof(int), cudaMemcpyDeviceToHost);
+    // //FLAG - count number of nonzero elements after circlesTileMask
+    // int *hostArray = new int[rounded_num_input_circles * num_tiles];
+    // cudaMemcpy(hostArray, device_output_circle_list, rounded_num_input_circles * num_tiles * sizeof(int), cudaMemcpyDeviceToHost);
 
-    int nonZeroCount = 0;
-    for (int i = 0; i < rounded_num_input_circles * num_tiles; i++) {
-        if (hostArray[i] != 0) {
-            nonZeroCount++;
-        }
-    }
+    // int nonZeroCount = 0;
+    // for (int i = 0; i < rounded_num_input_circles * num_tiles; i++) {
+    //     if (hostArray[i] != 0) {
+    //         nonZeroCount++;
+    //     }
+    // }
 
-    delete[] hostArray;
+    // delete[] hostArray;
 
-    std::cout << "Number of non-zero elements in the 1's 0's mask tensor: " << nonZeroCount << std::endl;
+    // std::cout << "Number of non-zero elements in the 1's 0's mask tensor: " << nonZeroCount << std::endl;
 
     exclusive_scan(device_output_circle_list, rounded_num_input_circles * num_tiles, scan_output_circle_list, 256);
 	cudaDeviceSynchronize();
@@ -1024,24 +1024,24 @@ CudaRenderer::render() {
 
     int rounded_num_circles = nextPow2(num_circles + 1);
 
-    //FLAG - debugging code
-    int numElements = rounded_num_circles * (image_width / tile_width) * (image_height / tile_height);
-    int *hostArray = new int[numElements];
+    // //FLAG - debugging code
+    // int numElements = rounded_num_circles * (image_width / tile_width) * (image_height / tile_height);
+    // int *hostArray = new int[numElements];
 
-    // Copy the array from device to host
-    cudaMemcpy(hostArray, device_tile_circles_list, numElements * sizeof(int), cudaMemcpyDeviceToHost);
+    // // Copy the array from device to host
+    // cudaMemcpy(hostArray, device_tile_circles_list, numElements * sizeof(int), cudaMemcpyDeviceToHost);
     
 
-    int nonZeroCount = 0;
-    for (int i = 0; i < numElements; i++) {
-        if (hostArray[i] != 0) {
-            nonZeroCount++;
-        }
-    }
-    std::cout << "Number of non-zero elements in the scanned tensor: " << nonZeroCount << std::endl;
+    // int nonZeroCount = 0;
+    // for (int i = 0; i < numElements; i++) {
+    //     if (hostArray[i] != 0) {
+    //         nonZeroCount++;
+    //     }
+    // }
+    // std::cout << "Number of non-zero elements in the scanned tensor: " << nonZeroCount << std::endl;
 
-    // Free the host array
-    delete[] hostArray;
+    // // Free the host array
+    // delete[] hostArray;
 
     int threads_per_block = 256;
     int num_blocks = (image_width * image_height + threads_per_block - 1) / threads_per_block;
